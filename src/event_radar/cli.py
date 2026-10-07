@@ -46,7 +46,7 @@ def _board(settings: config.Settings) -> None:
                 event["tier"],
                 _value(fields, "title"),
                 _value(fields, "reg_availability"),
-                _value(fields, "reg_closes_at"),
+                local_minute(_value(fields, "reg_closes_at")),
                 _value(fields, "reg_url"),
                 event["user_status"],
             )
