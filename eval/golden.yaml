@@ -1,0 +1,160 @@
+# Q5 golden set (ADR 0002, "Acceptance check"). Tagged 2026-10-07 by the Q5 profile from
+# radar/event-radar.md, timeline/calendar.md and research/2026-10-07-*.md.
+# A is complete for the sweeps; B and C are a sample for tier reporting, not gated.
+# `pages` are frozen in eval/fixtures/ (see manifest.json). `closes` is the sourced
+# registration close; `year_stated: false` marks a date whose source omits the year.
+now: "2026-10-07T12:00:00+02:00"
+pass_bar: 0.9
+
+events:
+  - id: ai-strategy-2026
+    tier: A
+    title: AI@STRATEGY 2026
+    starts: "2026-10-07"
+    venue: TUM Audimax, Arcisstr. 21
+    registration: {mode: ticket, availability: sold_out, closes: "2026-10-02T09:00:00Z"}
+    pages: [https://aistrategyconference.com/]
+    source: https://www.eventbrite.de/e/aistrategy-conference-tickets-1984493851531, checked 2026-10-07
+
+  - id: social-ai-demo-day
+    tier: A
+    title: TUM Social AI Club Demo Day, Second Edition
+    starts: "2026-10-13T18:30:00+02:00"
+    venue: CHECK24, Erika-Mann-Str. 62-66
+    registration: {mode: approval, url: https://luma.com/e392mn9r}
+    pages: [https://luma.com/e392mn9r]
+    source: research/2026-10-07-orgs-community.md, checked 2026-10-07
+
+  - id: goldwasser-lecture
+    tier: A
+    title: Munich AI Signature Lecture, Prof. Shafi Goldwasser
+    starts: "2026-10-20T18:00:00+02:00"
+    venue: BAdW, Alfons-Goppel-Str. 11
+    registration: {mode: open_signup, url: https://ai-agency.de/event/munich-ai-signature-lecture-prof-shafi-goldwasser-833/register}
+    pages:
+      - https://badw.de/en/events/view/a-cryptographic-perspective-on-machine-learning-trustworthiness-challenges
+      - https://ai-agency.de/event/munich-ai-signature-lecture-prof-shafi-goldwasser-833/register
+    source: https://badw.de/en/events/view/a-cryptographic-perspective-on-machine-learning-trustworthiness-challenges, checked 2026-10-07
+
+  - id: code-and-capital
+    tier: A
+    title: Code + Capital, Reimann Investors x TNG
+    starts: "2026-10-21T17:00:00+02:00"
+    venue: Gaertnerplatz area
+    registration: {mode: approval, url: https://luma.com/l1gq7mya}
+    pages: [https://luma.com/l1gq7mya]
+    source: research/2026-10-07-orgs-community.md, checked 2026-10-07
+
+  - id: tumai-application
+    tier: A
+    title: TUM.ai application round
+    starts: null
+    venue: TUM and LMU
+    registration: {mode: application, url: https://tally.so/r/BzWNEK, closes: "2026-10-27", year_stated: false}
+    pages: [https://www.tum-ai.com/apply, https://tally.so/r/w76dZ2]
+    source: https://tally.so/r/w76dZ2, checked 2026-10-07
+
+  - id: langchain-data-reply-hackathon
+    tier: A
+    title: "LangChain x Data Reply Hackathon: Building with Agent Harnesses"
+    starts: "2026-10-27"
+    venue: Arnulfpark area
+    registration: {mode: approval, url: https://luma.com/g6kvvori}
+    pages: [https://luma.com/g6kvvori]
+    source: research/2026-10-07-orgs-community.md, checked 2026-10-07
+
+  - id: mdsi-career-fair
+    tier: A
+    title: Munich Career Fair AI & Data Science
+    starts: "2026-10-29T14:00:00+01:00"
+    venue: TranslaTUM
+    registration: {mode: approval, url: https://pretix.eu/MDSI.TUM/career-fair-2026/}
+    pages:
+      - https://www.tum.de/aktuelles/veranstaltungen/details/munich-career-fair-ai-and-data-science
+      - https://pretix.eu/MDSI.TUM/career-fair-2026/
+    source: https://pretix.eu/MDSI.TUM/career-fair-2026/, checked 2026-10-07
+
+  - id: itcs-munich
+    tier: A
+    title: ITCS Munich
+    starts: "2026-10-30T10:00:00+01:00"
+    venue: MOC, Lilienthalallee 40
+    registration: {mode: unknown}
+    pages: [https://www.it-cs.io/, https://www.messen.de/de/21662/muenchen/itcs-muenchen/info]
+    source: https://www.messen.de/de/21662/muenchen/itcs-muenchen/info, checked 2026-10-07
+
+  - id: ki-symposium-2026
+    tier: A
+    title: KI-Symposium 2026
+    starts: "2026-11-09T18:15:00+01:00"
+    venue: Grosse Aula, LMU
+    registration: {mode: open_signup, url: https://luma.com/8hqv1871}
+    pages:
+      - https://luma.com/8hqv1871
+      - https://www.math.lmu.de/math4ai/en/latest-news/events-overview/event/registration-is-now-open-for-the-ki-symposium-2026-7ca12bf2.html
+    source: https://www.math.lmu.de/math4ai/en/latest-news/events-overview/event/registration-is-now-open-for-the-ki-symposium-2026-7ca12bf2.html, checked 2026-10-07
+
+  - id: hacktum-2026
+    tier: A
+    title: hackaTUM 2026
+    starts: "2026-11-27"
+    venue: Garching
+    registration: {mode: application, url: https://form.typeform.com/to/PlHhdXcE}
+    pages: [https://hack.tum.de/, https://hack.tum.de/faq/]
+    source: https://hack.tum.de/, checked 2026-10-07
+
+  - id: dld-munich-2027
+    tier: A
+    title: DLD Munich 2027
+    starts: "2027-01-14"
+    venue: House of Communication
+    registration: {mode: application}
+    pages: [https://dld-conference.com/]
+    needs_browser: true
+    source: https://dealroom.co/events/dld-munich-2027/, checked 2026-10-07, UNVERIFIED
+
+  - id: munich-nlp-jetbrains
+    tier: B
+    title: Munich NLP x JetBrains
+    starts: "2026-10-13T17:45:00+02:00"
+    venue: JetBrains Event Space
+    registration: {mode: approval, url: https://luma.com/4k19ckbb}
+    pages: [https://luma.com/4k19ckbb]
+    source: https://luma.com/4k19ckbb, checked 2026-10-07
+
+  - id: wids-munich-2026
+    tier: B
+    title: WiDS Munich 2026
+    starts: "2026-12-11T14:00:00+01:00"
+    venue: LMU Senatssaal
+    registration: {mode: unknown, availability: not_open}
+    pages: [https://widsmunich.de/]
+    source: https://widsmunich.de/, checked 2026-10-07
+
+  - id: lakestar-pitch-and-dine
+    tier: B
+    title: Lakestar Pitch and Dine
+    starts: "2026-11-19T16:00:00+01:00"
+    venue: Munich Urban Colab
+    registration: {mode: application, url: https://forms.gle/Sair2XCw4J8hwrSu9}
+    pages: [https://www.unternehmertum.de/en/events/lakestar-pitch-and-dine-2]
+    source: https://www.unternehmertum.de/en/events/lakestar-pitch-and-dine-2, checked 2026-10-07
+
+  - id: eaamo-2026
+    tier: C
+    title: ACM EAAMO 2026
+    starts: "2026-11-05"
+    venue: LMU
+    registration: {mode: ticket, closes: "2026-10-15"}
+    price: paid
+    pages: [https://conference.eaamo.org/]
+    source: https://conference.eaamo.org/, checked 2026-10-07
+
+  - id: cloud-native-october
+    tier: C
+    title: Kubernetes, Cloud Native and Platform Engineering Meetup, October
+    starts: "2026-10-21T18:00:00+02:00"
+    venue: adesso SE, Streitfeldstr. 25
+    registration: {mode: open_signup, url: https://luma.com/9sfx42ez}
+    pages: [https://luma.com/9sfx42ez]
+    source: research/2026-10-07-orgs-community.md, checked 2026-10-07

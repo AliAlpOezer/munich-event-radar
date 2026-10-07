@@ -2,3 +2,10 @@ research/*.pdf
 research/*.html
 research/raw/
 .DS_Store
+data/
+.venv/
+__pycache__/
+*.pyc
+.env
+.pytest_cache/
+.ruff_cache/
