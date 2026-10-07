@@ -1,0 +1,4 @@
+research/*.pdf
+research/*.html
+research/raw/
+.DS_Store
