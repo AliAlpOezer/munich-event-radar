@@ -49,7 +49,9 @@ def events(body: bytes) -> list[ParsedEvent]:
             "event_url": url,
             "description": description[:2000] or None,
         }
-        found.append(ParsedEvent(
-            {k: Evidence(v) for k, v in values.items() if v}, tuple(sorted(keys)), links
-        ))
+        found.append(
+            ParsedEvent(
+                {k: Evidence(v) for k, v in values.items() if v}, tuple(sorted(keys)), links
+            )
+        )
     return found

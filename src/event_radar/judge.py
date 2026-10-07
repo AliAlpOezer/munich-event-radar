@@ -56,8 +56,11 @@ class Judge:
     def ai_relevance(self, fields: dict) -> str:
         if stated := self._value(fields, "ai_relevance"):
             return str(stated)
-        return "core" if any(w in self._text(fields) for w in self.profile["keywords"]["ai"]) \
+        return (
+            "core"
+            if any(w in self._text(fields) for w in self.profile["keywords"]["ai"])
             else "unknown"
+        )
 
     def judge(self, fields: dict, now: datetime) -> Verdict:
         today = now.date().isoformat()

@@ -1,0 +1,19 @@
+[Unit]
+Description=Munich event radar run (ADR 0002)
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=eventradar
+Group=eventradar
+EnvironmentFile=/etc/event-radar/env
+ExecStart=/opt/event-radar/.venv/bin/event-radar run
+TimeoutStartSec=50min
+MemoryMax=700M
+Nice=10
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+ReadWritePaths=/var/lib/event-radar

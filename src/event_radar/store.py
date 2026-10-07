@@ -1,5 +1,6 @@
 import json
 import sqlite3
+import uuid
 from collections.abc import Iterator
 from contextlib import contextmanager
 from datetime import UTC, datetime
@@ -133,7 +134,8 @@ def now_iso() -> str:
 def _evidence_json(fields: dict[str, Evidence]) -> str:
     return json.dumps(
         {k: {"value": v.value, "quote": v.quote} for k, v in fields.items()},
-        ensure_ascii=False, sort_keys=True,
+        ensure_ascii=False,
+        sort_keys=True,
     )
 
 
@@ -186,9 +188,15 @@ class Store:
                     " item, platform_keys, fields, links, observed_at)"
                     " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
                     (
-                        snapshot_hash, url, source_class.value, method, item,
-                        json.dumps(sorted(event.platform_keys)), _evidence_json(event.fields),
-                        json.dumps(list(event.links)), observed,
+                        snapshot_hash,
+                        url,
+                        source_class.value,
+                        method,
+                        item,
+                        json.dumps(sorted(event.platform_keys)),
+                        _evidence_json(event.fields),
+                        json.dumps(list(event.links)),
+                        observed,
                     ),
                 )
         return len(events)
@@ -235,7 +243,9 @@ class Store:
     def spend(self, provider: str, cap: int) -> bool:
         day = datetime.now(UTC).date().isoformat()
         with self.tx() as db:
-            db.execute("INSERT OR IGNORE INTO budget (provider, day) VALUES (?, ?)", (provider, day))
+            db.execute(
+                "INSERT OR IGNORE INTO budget (provider, day) VALUES (?, ?)", (provider, day)
+            )
             cursor = db.execute(
                 "UPDATE budget SET used = used + 1 WHERE provider = ? AND day = ? AND used < ?",
                 (provider, day, cap),
@@ -247,10 +257,168 @@ class Store:
             rows = db.execute("SELECT * FROM observation ORDER BY id").fetchall()
         return [
             Observation(
-                id=r["id"], snapshot_hash=r["snapshot_hash"], url=r["url"],
-                source_class=SourceClass(r["source_class"]), method=r["method"],
-                platform_keys=json.loads(r["platform_keys"]), fields=_evidence_load(r["fields"]),
-                observed_at=r["observed_at"], links=json.loads(r["links"]),
+                id=r["id"],
+                snapshot_hash=r["snapshot_hash"],
+                url=r["url"],
+                source_class=SourceClass(r["source_class"]),
+                method=r["method"],
+                platform_keys=json.loads(r["platform_keys"]),
+                fields=_evidence_load(r["fields"]),
+                observed_at=r["observed_at"],
+                links=json.loads(r["links"]),
             )
             for r in rows
         ]
+
+    def add_organiser(self, name: str, domain: str, via: str, **cols) -> int:
+        with self.tx() as db:
+            tomb = db.execute(
+                "SELECT 1 FROM organiser WHERE domain = ? AND status = 'removed'", (domain,)
+            ).fetchone()
+            if tomb:
+                return 0
+            db.execute(
+                "INSERT OR IGNORE INTO organiser (name, domain, discovered_via, discovered_at,"
+                " homepage, kind, discovery_url) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (
+                    name,
+                    domain,
+                    via,
+                    now_iso(),
+                    cols.get("homepage"),
+                    cols.get("kind"),
+                    cols.get("discovery_url"),
+                ),
+            )
+            return db.execute(
+                "SELECT id FROM organiser WHERE domain = ? AND name = ?", (domain, name)
+            ).fetchone()["id"]
+
+    def add_source(
+        self,
+        url: str,
+        kind: str,
+        source_class: str,
+        cadence_hours: int,
+        via: str,
+        organiser_id: int | None = None,
+        browser: bool = False,
+    ) -> None:
+        with self.tx() as db:
+            db.execute(
+                "INSERT OR IGNORE INTO source (organiser_id, url, kind, source_class, browser,"
+                " cadence_hours, added_at, added_via) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                (
+                    organiser_id,
+                    url,
+                    kind,
+                    source_class,
+                    int(browser),
+                    cadence_hours,
+                    now_iso(),
+                    via,
+                ),
+            )
+
+    def due_sources(self, now: str, browser: bool = False) -> list[sqlite3.Row]:
+        with self.tx() as db:
+            return db.execute(
+                "SELECT s.* FROM source s LEFT JOIN organiser o ON o.id = s.organiser_id"
+                " WHERE s.browser = ? AND COALESCE(o.status, 'active') NOT IN ('removed')"
+                " AND (s.last_fetched_at IS NULL OR"
+                "      datetime(s.last_fetched_at, '+' || s.cadence_hours || ' hours')"
+                "      <= datetime(?))"
+                " ORDER BY s.last_fetched_at IS NOT NULL, s.kind = 'event_page', s.id",
+                (int(browser), now),
+            ).fetchall()
+
+    def mark_source(self, source_id: int, ok: bool, error: str | None, yielded: int | None):
+        stamp = now_iso()
+        with self.tx() as db:
+            if not ok:
+                db.execute(
+                    "UPDATE source SET last_fetched_at = ?, error_streak = error_streak + 1,"
+                    " last_error = ? WHERE id = ?",
+                    (stamp, error, source_id),
+                )
+                return
+            db.execute(
+                "UPDATE source SET last_fetched_at = ?, last_ok_at = ?, error_streak = 0,"
+                " last_error = NULL, last_yield = ?, max_yield = MAX(max_yield, ?),"
+                " empty_streak = CASE WHEN ? = 0 AND max_yield > 0 THEN empty_streak + 1"
+                " ELSE 0 END WHERE id = ?",
+                (stamp, stamp, yielded, yielded, yielded, source_id),
+            )
+
+    def set_cadence(self, urls: list[str], hours: int) -> None:
+        with self.tx() as db:
+            db.executemany(
+                "UPDATE source SET cadence_hours = ? WHERE url = ? AND kind = 'event_page'",
+                [(hours, u) for u in urls],
+            )
+
+    def save_events(self, resolved: list[tuple[set[str], dict, str, object]]) -> dict[str, int]:
+        stamp = now_iso()
+        counts = {"new": 0, "updated": 0, "merged": 0}
+        with self.tx() as db:
+            for aliases, fields, basis, verdict in resolved:
+                marks = ",".join("?" for _ in aliases)
+                found = db.execute(
+                    f"SELECT DISTINCT e.key, e.first_seen FROM event_alias a JOIN event e"
+                    f" ON e.key = a.event_key WHERE a.alias IN ({marks}) ORDER BY e.first_seen",
+                    tuple(aliases),
+                ).fetchall()
+                key = found[0]["key"] if found else uuid.uuid4().hex[:12]
+                for loser in found[1:]:
+                    db.execute(
+                        "UPDATE event_alias SET event_key = ? WHERE event_key = ?",
+                        (key, loser["key"]),
+                    )
+                    db.execute(
+                        "UPDATE OR IGNORE user_state SET event_key = ? WHERE event_key = ?",
+                        (key, loser["key"]),
+                    )
+                    db.execute("DELETE FROM user_state WHERE event_key = ?", (loser["key"],))
+                    db.execute("DELETE FROM event WHERE key = ?", (loser["key"],))
+                    counts["merged"] += 1
+                counts["updated" if found else "new"] += 1
+                db.execute(
+                    "INSERT INTO event (key, fields, merge_basis, tier, tier_reasons, drop_reason,"
+                    " first_seen, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
+                    " ON CONFLICT (key) DO UPDATE SET fields = excluded.fields,"
+                    " merge_basis = excluded.merge_basis, tier = excluded.tier,"
+                    " tier_reasons = excluded.tier_reasons, drop_reason = excluded.drop_reason,"
+                    " updated_at = excluded.updated_at",
+                    (
+                        key,
+                        json.dumps(fields, ensure_ascii=False, sort_keys=True),
+                        basis,
+                        verdict.tier,
+                        json.dumps(verdict.reasons),
+                        verdict.drop_reason,
+                        stamp,
+                        stamp,
+                    ),
+                )
+                db.executemany(
+                    "INSERT OR IGNORE INTO event_alias VALUES (?, ?)", [(a, key) for a in aliases]
+                )
+        return counts
+
+    def events(self) -> list[sqlite3.Row]:
+        with self.tx() as db:
+            return db.execute(
+                "SELECT e.*, COALESCE(u.status, 'none') AS user_status FROM event e"
+                " LEFT JOIN user_state u ON u.event_key = e.key"
+            ).fetchall()
+
+    def start_run(self) -> int:
+        with self.tx() as db:
+            return db.execute("INSERT INTO run (started_at) VALUES (?)", (now_iso(),)).lastrowid
+
+    def finish_run(self, run_id: int, outcome: str, summary: dict) -> None:
+        with self.tx() as db:
+            db.execute(
+                "UPDATE run SET finished_at = ?, outcome = ?, summary = ? WHERE id = ?",
+                (now_iso(), outcome, json.dumps(summary), run_id),
+            )

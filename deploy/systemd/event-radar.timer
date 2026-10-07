@@ -1,0 +1,10 @@
+[Unit]
+Description=Munich event radar, every 2 h from 07:00 to 23:00 Berlin time
+
+[Timer]
+OnCalendar=*-*-* 07,09,11,13,15,17,19,21,23:00:00 Europe/Berlin
+Persistent=true
+RandomizedDelaySec=5min
+
+[Install]
+WantedBy=timers.target

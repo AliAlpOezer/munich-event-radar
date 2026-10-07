@@ -32,8 +32,12 @@ class RobotsDisallowed(Exception):
 
 class Fetcher:
     def __init__(
-        self, store: Store, snapshots: SnapshotStore, user_agent: str,
-        min_interval_s: float = 5.0, client: httpx.Client | None = None,
+        self,
+        store: Store,
+        snapshots: SnapshotStore,
+        user_agent: str,
+        min_interval_s: float = 5.0,
+        client: httpx.Client | None = None,
     ):
         self.store = store
         self.snapshots = snapshots
@@ -69,8 +73,12 @@ class Fetcher:
         digest = self.snapshots.put(body)
         content_type = response_headers.get("content-type")
         self.store.record_snapshot(
-            url, content_hash=digest, http_status=status, content_type=content_type,
-            etag=response_headers.get("etag"), last_modified=response_headers.get("last-modified"),
+            url,
+            content_hash=digest,
+            http_status=status,
+            content_type=content_type,
+            etag=response_headers.get("etag"),
+            last_modified=response_headers.get("last-modified"),
         )
         changed = not previous or previous["content_hash"] != digest
         return Fetched(url, status, digest, content_type, changed)

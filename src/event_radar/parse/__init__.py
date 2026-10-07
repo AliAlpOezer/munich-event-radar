@@ -25,9 +25,14 @@ def _is_rss(content_type: str, body: bytes) -> bool:
 def _detail_links(page_url: str, links: list[str]) -> list[str]:
     host = urlsplit(page_url).netloc
     return [
-        link for link in links
-        if (urlsplit(link).netloc == host and _DETAIL_PATH.search(urlsplit(link).path)
-            and link.rstrip("/") != page_url.rstrip("/")) or platform_key(link)
+        link
+        for link in links
+        if (
+            urlsplit(link).netloc == host
+            and _DETAIL_PATH.search(urlsplit(link).path)
+            and link.rstrip("/") != page_url.rstrip("/")
+        )
+        or platform_key(link)
     ]
 
 
@@ -43,7 +48,9 @@ def _single(page_url: str, event: ParsedEvent, ticket_links: list[str]) -> Parse
         if len(linked) == 1:
             keys |= linked
     fields.setdefault("event_url", Evidence(page_url))
-    return replace(event, platform_keys=tuple(sorted(keys)), links=tuple(ticket_links), fields=fields)
+    return replace(
+        event, platform_keys=tuple(sorted(keys)), links=tuple(ticket_links), fields=fields
+    )
 
 
 def parse(url: str, content_type: str | None, body: bytes, kind: Kind) -> ParseResult:
@@ -51,7 +58,9 @@ def parse(url: str, content_type: str | None, body: bytes, kind: Kind) -> ParseR
     if _is_ics(content_type, body):
         return ParseResult("ics@1", tuple(ics.events(body)))
     if _is_rss(content_type, body):
-        return ParseResult("rss@1", follow=tuple(dict.fromkeys(_RSS_LINK.findall(body.decode(errors="replace")))))
+        return ParseResult(
+            "rss@1", follow=tuple(dict.fromkeys(_RSS_LINK.findall(body.decode(errors="replace"))))
+        )
     tree = LexborHTMLParser(body)
     found, method = luma.events(tree), "luma@1"
     structured = jsonld.events(tree)
@@ -62,12 +71,16 @@ def parse(url: str, content_type: str | None, body: bytes, kind: Kind) -> ParseR
     page_links = html.links(tree, url)
     ticket_links = [link for link in page_links if platform_key(link)]
     if kind is not Kind.EVENT_PAGE:
-        return ParseResult(method, tuple(found), follow=tuple(_detail_links(url, page_links)))
+        feed = luma.calendar_feed(tree)
+        follow = [feed] if feed else _detail_links(url, page_links)
+        return ParseResult(method, tuple(found), follow=tuple(follow))
     if len(found) != 1:
         return ParseResult(method, tuple(found), follow=tuple(ticket_links), needs_llm=True)
     event = _single(url, found[0], ticket_links)
     lacks_registration = not any(f in event.fields for f in _REGISTRATION)
     return ParseResult(
-        method, (event,), follow=tuple(ticket_links),
+        method,
+        (event,),
+        follow=tuple(ticket_links),
         needs_llm=lacks_registration and not is_ticket_host(url),
     )

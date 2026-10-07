@@ -10,8 +10,14 @@ from .model import Observation, SourceClass
 from .platforms import canonical
 
 CLASS_RANK = {SourceClass.TICKET: 0, SourceClass.OWN: 1, SourceClass.AGG: 2}
-REGISTRATION_FIELDS = {"reg_mode", "reg_url", "reg_opens_at", "reg_closes_at",
-                       "reg_availability", "spots_left"}
+REGISTRATION_FIELDS = {
+    "reg_mode",
+    "reg_url",
+    "reg_opens_at",
+    "reg_closes_at",
+    "reg_availability",
+    "spots_left",
+}
 TITLE_SIMILARITY = 0.6
 BERLIN = ZoneInfo("Europe/Berlin")
 
@@ -54,8 +60,10 @@ def _aliases(obs: Observation) -> set[str]:
     if not aliases:
         title = obs.fields.get("title")
         start = obs.fields.get("starts_at")
-        aliases.add(f"obs:{canonical(obs.url)}|{_norm(title and title.value)}|"
-                    f"{local_date(start and start.value)}")
+        aliases.add(
+            f"obs:{canonical(obs.url)}|{_norm(title and title.value)}|"
+            f"{local_date(start and start.value)}"
+        )
     return aliases
 
 
@@ -104,14 +112,19 @@ def _first(obs_list: list[Observation], name: str) -> str:
 
 
 def _fuzzy_match(a: Resolved, b: Resolved) -> bool:
-    dates_a = {local_date(o.fields["starts_at"].value) for o in a.observations if "starts_at" in o.fields}
-    dates_b = {local_date(o.fields["starts_at"].value) for o in b.observations if "starts_at" in o.fields}
+    dates_a = {
+        local_date(o.fields["starts_at"].value) for o in a.observations if "starts_at" in o.fields
+    }
+    dates_b = {
+        local_date(o.fields["starts_at"].value) for o in b.observations if "starts_at" in o.fields
+    }
     if not (dates_a & dates_b) - {None} or _conflict(a.aliases, b.aliases):
         return False
     title_a, title_b = _first(a.observations, "title"), _first(b.observations, "title")
     return bool(title_a and title_b) and (
         SequenceMatcher(None, title_a, title_b).ratio() >= TITLE_SIMILARITY
-        or title_a in title_b or title_b in title_a
+        or title_a in title_b
+        or title_b in title_a
     )
 
 
@@ -131,8 +144,12 @@ def _pick(group: Resolved) -> dict[str, dict]:
                 continue
             if name in REGISTRATION_FIELDS and obs.source_class is SourceClass.AGG:
                 continue
-            chosen[name] = {"value": evidence.value, "quote": evidence.quote,
-                            "observation": obs.id, "class": obs.source_class.value}
+            chosen[name] = {
+                "value": evidence.value,
+                "quote": evidence.quote,
+                "observation": obs.id,
+                "class": obs.source_class.value,
+            }
     _refine_time(group, chosen)
     if not group.classes - {SourceClass.AGG}:
         chosen["reg_availability"] = {"value": "unchecked", "observation": None, "class": None}
@@ -147,10 +164,17 @@ def _refine_time(group: Resolved, chosen: dict[str, dict]) -> None:
             continue
         for obs in sorted(group.observations, key=_rank):
             candidate = obs.fields.get(name)
-            if candidate and str(candidate.value).startswith(str(current["value"])) \
-                    and len(str(candidate.value)) > 10:
-                chosen[name] = {"value": candidate.value, "quote": candidate.quote,
-                                "observation": obs.id, "class": obs.source_class.value}
+            if (
+                candidate
+                and str(candidate.value).startswith(str(current["value"]))
+                and len(str(candidate.value)) > 10
+            ):
+                chosen[name] = {
+                    "value": candidate.value,
+                    "quote": candidate.quote,
+                    "observation": obs.id,
+                    "class": obs.source_class.value,
+                }
                 break
 
 

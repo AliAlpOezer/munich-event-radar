@@ -1,0 +1,93 @@
+# Seed registry (ADR 0002 D14). PARTIAL: the high-yield feeds from R3 and the golden-set
+# organisers, 2026-10-07. The full curation of the ~240 sweep rows is still to do.
+# kind: feed (ICS/RSS), listing (an events page), event_page (a single event).
+# class is optional: ticket platforms are TICKET, `aggregators` in profile.yaml are AGG,
+# everything else is OWN.
+
+- name: Munich NLP
+  domain: luma.com/munichnlp
+  kind: community
+  sources: [{url: https://luma.com/munichnlp, kind: listing}]
+- name: appliedAI Developers Munich
+  domain: luma.com/appliedaidevelopers
+  kind: community
+  sources: [{url: https://luma.com/appliedaidevelopers, kind: listing}]
+- name: TUM Social AI Club
+  domain: luma.com/tum-socialaiclub
+  kind: student
+  sources: [{url: https://luma.com/tum-socialaiclub, kind: listing}]
+- name: AAIF Community Munich
+  domain: luma.com/aaif-munich
+  kind: community
+  sources: [{url: https://luma.com/aaif-munich, kind: listing}]
+- name: AWS User Group Munich
+  domain: meetup.com/aws-munich
+  kind: community
+  sources: [{url: https://www.meetup.com/aws-munich/events/ical/, kind: feed}]
+- name: Munich AI, ML and Computer Vision Meetup
+  domain: meetup.com/munchen-ai-machine-learning-and-computer-vision-meetup
+  kind: community
+  sources:
+    - {url: "https://www.meetup.com/munchen-ai-machine-learning-and-computer-vision-meetup/events/ical/", kind: feed}
+- name: MDSI (TUM Munich Data Science Institute)
+  domain: mdsi.tum.de
+  kind: academic
+  sources:
+    - {url: https://pretix.eu/MDSI.TUM/events/ical/, kind: feed}
+    - {url: https://www.mdsi.tum.de/mdsi/aktuelles/veranstaltungen/, kind: listing}
+- name: MCML (Munich Center for Machine Learning)
+  domain: mcml.ai
+  kind: academic
+  sources: [{url: https://mcml.ai/events/index.xml, kind: feed, class: AGG}]
+- name: TUM central events
+  domain: tum.de
+  kind: academic
+  sources: [{url: https://www.tum.de/en/news-and-events/events/event-overview, kind: listing}]
+- name: AI-HUB@LMU
+  domain: lmu.de/ai-hub
+  kind: academic
+  sources: [{url: https://www.lmu.de/ai-hub/en/news-events/all-events/, kind: listing}]
+- name: BAdW (Bavarian Academy of Sciences)
+  domain: badw.de
+  kind: academic
+  sources: [{url: https://badw.de/en/events, kind: listing}]
+- name: UnternehmerTUM
+  domain: unternehmertum.de
+  kind: startup
+  sources: [{url: https://www.unternehmertum.de/en/events, kind: listing}]
+- name: Munich Startup
+  domain: munich-startup.de
+  kind: startup
+  sources: [{url: https://www.munich-startup.de/en/events, kind: listing}]
+- name: hackaTUM
+  domain: hack.tum.de
+  kind: student
+  sources: [{url: https://hack.tum.de/, kind: event_page}]
+- name: TUM.ai
+  domain: tum-ai.com
+  kind: student
+  sources: [{url: https://www.tum-ai.com/apply, kind: event_page}]
+- name: WiDS Munich
+  domain: widsmunich.de
+  kind: academic
+  sources: [{url: https://widsmunich.de/, kind: event_page}]
+- name: TUM School of Management, Strategy and Organization
+  domain: aistrategyconference.com
+  kind: academic
+  sources: [{url: https://aistrategyconference.com/, kind: event_page}]
+- name: ITCS
+  domain: it-cs.io
+  kind: industry
+  sources: [{url: https://www.it-cs.io/, kind: event_page}]
+- name: DLD (Burda)
+  domain: dld-conference.com
+  kind: industry
+  sources: [{url: https://dld-conference.com/, kind: event_page, browser: true}]
+- name: START Munich
+  domain: startmunich.de
+  kind: student
+  sources: [{url: https://www.startmunich.de/events, kind: listing, browser: true}]
+- name: baiosphere
+  domain: baiosphere.org
+  kind: academic
+  sources: [{url: https://baiosphere.org/, kind: listing, browser: true}]

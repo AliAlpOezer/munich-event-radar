@@ -5,8 +5,12 @@ from selectolax.lexbor import LexborHTMLParser
 from ..model import Evidence, ParsedEvent
 
 _AVAILABILITY = {
-    "SoldOut": "sold_out", "InStock": "open", "LimitedAvailability": "open",
-    "PreOrder": "not_open", "PreSale": "not_open", "Discontinued": "closed",
+    "SoldOut": "sold_out",
+    "InStock": "open",
+    "LimitedAvailability": "open",
+    "PreOrder": "not_open",
+    "PreSale": "not_open",
+    "Discontinued": "closed",
 }
 _ATTENDANCE = {"Offline": "in_person", "Online": "online", "Mixed": "mixed"}
 

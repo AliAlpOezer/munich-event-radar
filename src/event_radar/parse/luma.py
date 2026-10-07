@@ -19,6 +19,20 @@ def _closes_at(data: dict) -> str | None:
     return max(ends) if ends else None
 
 
+def calendar_feed(tree: LexborHTMLParser) -> str | None:
+    script = tree.css_first("script#__NEXT_DATA__")
+    if script is None:
+        return None
+    try:
+        data = json.loads(script.text())["props"]["pageProps"]["initialData"]["data"]
+        calendar_id = data["calendar"]["api_id"]
+    except (ValueError, KeyError, TypeError):
+        return None
+    if "event" in data or not str(calendar_id).startswith("cal-"):
+        return None
+    return f"https://api.lu.ma/ics/get?entity=calendar&id={calendar_id}"
+
+
 def events(tree: LexborHTMLParser) -> list[ParsedEvent]:
     script = tree.css_first("script#__NEXT_DATA__")
     if script is None:

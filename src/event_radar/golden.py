@@ -46,8 +46,15 @@ def replay(repo: Path, extract=None) -> dict:
         snapshots = SnapshotStore(Path(tmp) / "snapshots")
         for url, content_type, body in _fixture_pages(repo):
             digest = snapshots.put(body)
-            result = ingest(store, url, digest, content_type, body, Kind.EVENT_PAGE,
-                            source_class(url, profile["aggregators"]))
+            result = ingest(
+                store,
+                url,
+                digest,
+                content_type,
+                body,
+                Kind.EVENT_PAGE,
+                source_class(url, profile["aggregators"]),
+            )
             if result.needs_llm and extract:
                 extract(store, url, digest, body, source_class(url, profile["aggregators"]))
         groups = resolve(store.observations())
@@ -64,21 +71,28 @@ def _score(golden: dict, groups, judge: Judge, now: datetime) -> dict:
         best = surfaced[0] if surfaced else (verdicts[0] if verdicts else (None, None))
         group, verdict = best
         expected_close = (event.get("registration") or {}).get("closes")
-        got_close = local_date(((group.fields if group else {}).get("reg_closes_at") or {}).get("value"))
-        rows.append({
-            "id": event["id"], "expected": event["tier"],
-            "got": verdict.tier if verdict else None,
-            "drop": verdict.drop_reason if verdict else "not_found",
-            "reasons": list(verdict.reasons) if verdict else [],
-            "window_expected": expected_close, "window_got": got_close,
-            "window_ok": not expected_close or bool(got_close and got_close.endswith(expected_close[5:10])),
-        })
+        got_close = local_date(
+            ((group.fields if group else {}).get("reg_closes_at") or {}).get("value")
+        )
+        rows.append(
+            {
+                "id": event["id"],
+                "expected": event["tier"],
+                "got": verdict.tier if verdict else None,
+                "drop": verdict.drop_reason if verdict else "not_found",
+                "reasons": list(verdict.reasons) if verdict else [],
+                "window_expected": expected_close,
+                "window_got": got_close,
+                "window_ok": not expected_close
+                or bool(got_close and got_close.endswith(expected_close[5:10])),
+            }
+        )
     a_rows = [r for r in rows if r["expected"] == "A"]
     surfaced = [r for r in a_rows if r["got"] in {"A", "B"}]
     return {
         "a_recall": round(len(surfaced) / len(a_rows), 3),
         "pass": len(surfaced) / len(a_rows) >= golden["pass_bar"]
-                and all(r["window_ok"] for r in surfaced),
+        and all(r["window_ok"] for r in surfaced),
         "events": rows,
     }
 

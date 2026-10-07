@@ -14,14 +14,42 @@ _PATTERNS = (
 )
 
 _NOT_EVENTS = {
-    "luma": {"discover", "calendar", "user", "signin", "login", "home", "create", "explore",
-             "pricing", "about", "help", "terms", "privacy", "privacy-policy", "blog", "changelog",
-             "ios", "android", "careers", "settings"},
+    "luma": {
+        "discover",
+        "calendar",
+        "user",
+        "signin",
+        "login",
+        "home",
+        "create",
+        "explore",
+        "pricing",
+        "about",
+        "help",
+        "terms",
+        "privacy",
+        "privacy-policy",
+        "blog",
+        "changelog",
+        "ios",
+        "android",
+        "careers",
+        "settings",
+    },
 }
 _NOT_EVENT_PREFIXES = {"pretix": ("locale/", "control/", "api/", "static/", "about/")}
 
-TICKET_HOSTS = ("luma.com", "lu.ma", "eventbrite.", "meetup.com", "pretix.eu", "typeform.com",
-                "tally.so", "forms.gle", "docs.google.com")
+TICKET_HOSTS = (
+    "luma.com",
+    "lu.ma",
+    "eventbrite.",
+    "meetup.com",
+    "pretix.eu",
+    "typeform.com",
+    "tally.so",
+    "forms.gle",
+    "docs.google.com",
+)
 
 
 def platform_key(url: str) -> str | None:

@@ -35,9 +35,26 @@ USER_TRANSITIONS: dict[UserStatus, set[UserStatus]] = {
 }
 
 EVENT_FIELDS = (
-    "title", "starts_at", "ends_at", "venue", "address", "city", "attendance", "organiser",
-    "description", "event_url", "reg_mode", "reg_url", "reg_opens_at", "reg_closes_at",
-    "reg_availability", "spots_left", "price", "prerequisites", "kind", "ai_relevance",
+    "title",
+    "starts_at",
+    "ends_at",
+    "venue",
+    "address",
+    "city",
+    "attendance",
+    "organiser",
+    "description",
+    "event_url",
+    "reg_mode",
+    "reg_url",
+    "reg_opens_at",
+    "reg_closes_at",
+    "reg_availability",
+    "spots_left",
+    "price",
+    "prerequisites",
+    "kind",
+    "ai_relevance",
 )
 
 

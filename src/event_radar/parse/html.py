@@ -28,5 +28,7 @@ def text(body: bytes, base: str, limit: int = 12000) -> str:
             anchor.replace_with(f"{label} <{urljoin(base, href)}>")
     root = tree.body or tree.root
     raw = root.text(separator="\n") if root else ""
-    cleaned = _LINES.sub("\n\n", "\n".join(_SPACE.sub(" ", line).strip() for line in raw.splitlines()))
+    cleaned = _LINES.sub(
+        "\n\n", "\n".join(_SPACE.sub(" ", line).strip() for line in raw.splitlines())
+    )
     return cleaned.strip()[:limit]
