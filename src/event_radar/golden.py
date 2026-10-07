@@ -4,6 +4,7 @@ import shutil
 import tempfile
 from datetime import datetime
 from pathlib import Path
+from urllib.parse import urlsplit
 
 import yaml
 
@@ -36,6 +37,16 @@ def _fixture_pages(repo: Path):
             yield url, entry.get("content_type"), (fixtures / entry["file"]).read_bytes()
 
 
+def _focus_domains(repo: Path) -> tuple[str, ...]:
+    rows = yaml.safe_load((repo / "seed" / "organisers.yaml").read_text(encoding="utf-8"))
+    return tuple(r["domain"] for r in rows if r.get("ai_focus"))
+
+
+def _under(url: str, domains: tuple[str, ...]) -> bool:
+    parts = urlsplit(url)
+    return (parts.netloc.removeprefix("www.") + parts.path).startswith(domains)
+
+
 def replay(repo: Path, extract=None) -> dict:
     golden = load(repo)
     now = datetime.fromisoformat(golden["now"])
@@ -58,15 +69,18 @@ def replay(repo: Path, extract=None) -> dict:
             if result.needs_llm and extract:
                 extract(store, url, digest, body, source_class(url, profile["aggregators"]))
         groups = resolve(store.observations())
-    return _score(golden, groups, judge, now)
+    return _score(golden, groups, judge, now, _focus_domains(repo))
 
 
-def _score(golden: dict, groups, judge: Judge, now: datetime) -> dict:
+def _score(golden: dict, groups, judge: Judge, now: datetime, domains: tuple[str, ...]) -> dict:
     rows = []
     for event in golden["events"]:
         pages = {canonical(p) for p in event["pages"]}
         matches = [g for g in groups if pages & {canonical(o.url) for o in g.observations}]
-        verdicts = [(g, judge.judge(g.fields, now)) for g in matches]
+        # Fixture pages have no source rows. An event is judged as its organiser's: AI-focused
+        # when one of its pages lies under an AI-focused seed organiser's domain.
+        ai_focus = any(_under(p, domains) for p in event["pages"])
+        verdicts = [(g, judge.judge(g.fields, now, ai_focus=ai_focus)) for g in matches]
         surfaced = [(g, v) for g, v in verdicts if v.tier in {"A", "B"}]
         best = surfaced[0] if surfaced else (verdicts[0] if verdicts else (None, None))
         group, verdict = best

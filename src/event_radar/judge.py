@@ -21,6 +21,7 @@ class Judge:
         self.cities = {c.lower() for c in profile["munich"]["cities"]}
         self.postal = tuple(profile["munich"]["postal_codes"])
         self.a_kinds = set(profile["a_kinds"])
+        self.any_topic_kinds = set(profile["any_topic_kinds"])
 
     @classmethod
     def from_file(cls, path: Path) -> "Judge":
@@ -37,6 +38,21 @@ class Judge:
         if postcodes := re.findall(r"\b\d{5}\b", place):
             return any(p.startswith(self.postal) for p in postcodes)
         return True if any(c in place for c in self.cities) else None
+
+    def attendance(self, fields: dict) -> tuple[str | None, str | None]:
+        if stated := self._value(fields, "attendance"):
+            return str(stated), None
+        online = self.profile["online"]
+        venue = str(self._value(fields, "venue") or "")
+        if " ".join(re.findall(r"[^\W_]+", venue.lower())) in online["venues"]:
+            return "online", f"venue '{venue}'"
+        if venue or self._value(fields, "address"):
+            return None, None
+        description = str(self._value(fields, "description") or "").lower()
+        if any(p in description for p in online["in_person"]):
+            return None, None
+        phrase = next((p for p in online["phrases"] if p in description), None)
+        return ("online", f"description '{phrase}'") if phrase else (None, None)
 
     def _text(self, fields: dict) -> str:
         parts = (self._value(fields, n) for n in ("title", "description", "organiser"))
@@ -62,13 +78,14 @@ class Judge:
             else "unknown"
         )
 
-    def judge(self, fields: dict, now: datetime) -> Verdict:
+    def judge(self, fields: dict, now: datetime, *, ai_focus: bool) -> Verdict:
         today = now.date().isoformat()
         last_day = local_date(self._value(fields, "ends_at") or self._value(fields, "starts_at"))
         if last_day and last_day < today:
             return Verdict(None, (), "past")
-        if self._value(fields, "attendance") == "online":
-            return Verdict(None, (), "online_only")
+        attendance, evidence = self.attendance(fields)
+        if attendance == "online":
+            return Verdict(None, tuple(filter(None, (evidence,))), "online_only")
         if self._in_munich(fields) is False:
             return Verdict(None, (), "outside_munich")
         price = self._value(fields, "price") or "unknown"
@@ -79,6 +96,8 @@ class Judge:
             return Verdict("C", reasons + ("paid, no free route",))
         if relevance == "none":
             return Verdict("C", reasons + ("not AI-relevant",))
+        if relevance == "unknown" and not ai_focus and kind not in self.any_topic_kinds:
+            return Verdict("C", reasons + ("AI relevance unknown, organiser not AI-focused",))
         if kind in self.a_kinds:
             return Verdict("A", reasons)
         return Verdict("B", reasons)

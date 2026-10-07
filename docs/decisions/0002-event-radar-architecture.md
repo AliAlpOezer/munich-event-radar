@@ -93,7 +93,7 @@ Registration on a ticket platform is not a component. It stays Alp's action (Q2c
 ## Data model
 
 ```
-organiser   id, name, homepage, kind, status (active|demoted|removed|dormant),
+organiser   id, name, homepage, kind, ai_focus, status (active|demoted|removed|dormant),
             discovered_via (seed|search|crawl|event_mention|manual), discovered_at, discovery_url
 source      id, organiser_id, url, access (ics|api|rss|html|browser), parser, cadence,
             last_ok_at, last_yield, empty_streak, error_streak
@@ -159,6 +159,7 @@ One writer per fact (masters repo ADR 0002, invariant 6).
 | Field | Writer | Conflict rule |
 |---|---|---|
 | organiser and source rows | seed importer (once), discovery (insert only) | discovery never changes an existing row |
+| `organiser.ai_focus` | seed importer (a re-import applies seed edits), discovery at insert | |
 | `organiser.status` | web app | `removed` is a tombstone: discovery cannot re-add that domain |
 | snapshot, source health | fetcher, browser unit, parsers | |
 | observation | parsers, extractor through the verifier | append-only |
@@ -249,8 +250,12 @@ any snapshot behind a current field, and prunes the rest after 90 days.
 Platform keys: Luma `evt-…` (a slug resolves to it after one fetch), Meetup `event_<id>`,
 Eventbrite id, pretix `<org>/<event>`, Google UID, and the form URL for applications. An
 organiser or aggregator observation that links a ticket URL takes that key. With no key,
-the same local date, the same venue and a similar normalised title merge with
-`merge_basis=fuzzy`, which is Q8's `UNVERIFIED-merge`. Two records with different
+the same local date and a similar normalised title merge with `merge_basis=fuzzy`, which is
+Q8's `UNVERIFIED-merge`. Similar means a sequence ratio of at least 0.6, one title inside
+the other, or every distinctive word stem of the shorter title (at least two) inside the
+longer one; stated start times must also lie within an hour. Venues are not compared: one
+hall is "Bayerische Akademie der Wissenschaften" on its own page and "Bavarian Academy of
+Sciences and Humanities" on TUM's (2026-10-07). Two records with different
 platform keys never merge.
 **Why a surrogate:** an event first seen on an aggregator gains its platform key later. If
 the platform ID were the key, the calendar entry ID would change and the entry would
@@ -269,7 +274,11 @@ the AI@STRATEGY rule as code.
 ### D6. The model supplies features; code assigns the tier
 Features, each with a quote: event kind, AI relevance, networking signal, price class.
 They come from parsers, a German and English keyword classifier, organiser defaults, or the
-LLM when those are unsure. `profile.yaml` maps features to A, B or C per Q5. Feedback
+LLM when those are unsure. `profile.yaml` maps features to A, B or C per Q5.
+Organiser default (2026-10-07, after the first live runs): unknown AI relevance counts as
+relevant only for an event observed through an organiser with `ai_focus` in the seed.
+Elsewhere it is C unless its kind is in `any_topic_kinds` (career fairs, hackathons).
+Before this, the general TUM and BAdW calendars put about 60 non-AI events in B. Feedback
 reorders events within a tier and can propose a profile edit in the UI; it never changes a
 tier by itself (Q3).
 Assumption written into the profile: free hackathons and programmes with an application

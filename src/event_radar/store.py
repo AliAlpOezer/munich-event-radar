@@ -15,6 +15,7 @@ CREATE TABLE IF NOT EXISTS organiser (
     domain TEXT NOT NULL,
     homepage TEXT,
     kind TEXT,
+    ai_focus INTEGER NOT NULL DEFAULT 0,
     status TEXT NOT NULL DEFAULT 'active'
         CHECK (status IN ('active', 'demoted', 'removed', 'dormant')),
     discovered_via TEXT NOT NULL,
@@ -125,6 +126,7 @@ CREATE TABLE IF NOT EXISTS run (
     summary TEXT
 );
 """
+MIGRATIONS = (("organiser", "ai_focus", "INTEGER NOT NULL DEFAULT 0"),)
 
 
 def now_iso() -> str:
@@ -149,6 +151,10 @@ class Store:
         path.parent.mkdir(parents=True, exist_ok=True)
         with self.tx() as db:
             db.executescript(SCHEMA)
+            for table, column, decl in MIGRATIONS:
+                columns = {r["name"] for r in db.execute(f"PRAGMA table_info({table})")}
+                if column not in columns:
+                    db.execute(f"ALTER TABLE {table} ADD COLUMN {column} {decl}")
 
     @contextmanager
     def tx(self) -> Iterator[sqlite3.Connection]:
@@ -279,7 +285,7 @@ class Store:
                 return 0
             db.execute(
                 "INSERT OR IGNORE INTO organiser (name, domain, discovered_via, discovered_at,"
-                " homepage, kind, discovery_url) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                " homepage, kind, ai_focus, discovery_url) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
                 (
                     name,
                     domain,
@@ -287,9 +293,17 @@ class Store:
                     now_iso(),
                     cols.get("homepage"),
                     cols.get("kind"),
+                    int(cols.get("ai_focus", False)),
                     cols.get("discovery_url"),
                 ),
             )
+            # The seed file owns ai_focus on seed rows, so a re-import applies its edits.
+            if via == "seed":
+                db.execute(
+                    "UPDATE organiser SET ai_focus = ? WHERE domain = ? AND name = ?"
+                    " AND discovered_via = 'seed'",
+                    (int(cols.get("ai_focus", False)), domain, name),
+                )
             return db.execute(
                 "SELECT id FROM organiser WHERE domain = ? AND name = ?", (domain, name)
             ).fetchone()["id"]
@@ -319,6 +333,16 @@ class Store:
                     via,
                 ),
             )
+
+    def focused_urls(self) -> set[str]:
+        with self.tx() as db:
+            return {
+                r["url"]
+                for r in db.execute(
+                    "SELECT s.url FROM source s JOIN organiser o ON o.id = s.organiser_id"
+                    " WHERE o.ai_focus = 1"
+                )
+            }
 
     def due_sources(self, now: str, browser: bool = False) -> list[sqlite3.Row]:
         with self.tx() as db:

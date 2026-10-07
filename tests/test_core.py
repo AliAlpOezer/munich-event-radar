@@ -140,17 +140,108 @@ def test_fuzzy_merge_on_same_date_and_title():
     assert group.merge_basis == "fuzzy"
 
 
-def test_judge_drops_only_by_logged_rule_and_never_on_price():
-    judge = Judge.from_file(REPO / "profile.yaml")
-    field = lambda **kw: {k: {"value": v} for k, v in kw.items()}  # noqa: E731
-    assert judge.judge(field(title="AI meetup", starts_at="2026-10-01"), NOW).drop_reason == "past"
-    assert (
-        judge.judge(field(title="AI talk", attendance="online"), NOW).drop_reason == "online_only"
+def test_fuzzy_merge_when_short_title_stems_are_inside_long_title():
+    badw = obs(
+        1,
+        "https://badw.de/en/events/view/a-cryptographic-perspective",
+        SourceClass.OWN,
+        title="Munich AI Lecture: A Cryptographic Perspective on Machine Learning"
+        " Trustworthiness Challenges",
+        starts_at="2026-10-20",
+        venue="Bayerische Akademie der Wissenschaften",
     )
-    assert judge.judge(field(title="AI day", city="Berlin"), NOW).drop_reason == "outside_munich"
-    paid = judge.judge(field(title="AI conference", price="paid", city="München"), NOW)
+    tum = obs(
+        2,
+        "https://www.tum.de/en/news-and-events/events/details/cryptography-for-trustworthy-ai",
+        SourceClass.OWN,
+        title="Cryptography for Trustworthy AI",
+        starts_at="2026-10-20T18:00:00+02:00",
+        venue="Bavarian Academy of Sciences and Humanities (BAdW)",
+    )
+    [group] = resolve([badw, tum])
+    assert group.merge_basis == "fuzzy"
+    assert group.fields["starts_at"]["value"] == "2026-10-20T18:00:00+02:00"
+
+
+def test_fuzzy_merge_needs_two_stems_and_compatible_start_times():
+    def talk(id, title, start):
+        return obs(id, f"https://tum.de/{id}", SourceClass.OWN, title=title, starts_at=start)
+
+    one_stem = [
+        talk(1, "Cryptographic", "2026-10-20"),
+        talk(2, "Quantum Cryptography and Post-Quantum Security Day", "2026-10-20"),
+    ]
+    assert len(resolve(one_stem)) == 2
+    sessions = [
+        talk(1, "Info session: Searching for accommodation", "2026-10-15T10:00:00+02:00"),
+        talk(2, "Info session: Searching for accommodation", "2026-10-15T14:00:00+02:00"),
+    ]
+    assert len(resolve(sessions)) == 2
+
+
+def test_seed_reimport_applies_ai_focus_and_migrates_old_databases(tmp_path):
+    import sqlite3
+
+    path = tmp_path / "old.db"
+    with sqlite3.connect(path) as db:
+        db.execute(
+            "CREATE TABLE organiser (id INTEGER PRIMARY KEY, name TEXT NOT NULL, domain TEXT"
+            " NOT NULL, homepage TEXT, kind TEXT, status TEXT NOT NULL DEFAULT 'active',"
+            " discovered_via TEXT NOT NULL, discovered_at TEXT NOT NULL, discovery_url TEXT,"
+            " UNIQUE (domain, name))"
+        )
+    store = Store(path)
+    org = store.add_organiser("Munich NLP", "luma.com/munichnlp", "seed")
+    store.add_source("https://luma.com/munichnlp", "listing", "TICKET", 24, "seed", org)
+    assert store.focused_urls() == set()
+    assert store.add_organiser("Munich NLP", "luma.com/munichnlp", "seed", ai_focus=True) == org
+    assert store.focused_urls() == {"https://luma.com/munichnlp"}
+
+
+JUDGE = Judge.from_file(REPO / "profile.yaml")
+
+
+def verdict(ai_focus=True, **fields):
+    return JUDGE.judge({k: {"value": v} for k, v in fields.items()}, NOW, ai_focus=ai_focus)
+
+
+def test_judge_drops_only_by_logged_rule_and_never_on_price():
+    assert verdict(title="AI meetup", starts_at="2026-10-01").drop_reason == "past"
+    assert verdict(title="AI talk", attendance="online").drop_reason == "online_only"
+    assert verdict(title="AI day", city="Berlin").drop_reason == "outside_munich"
+    paid = verdict(title="AI conference", price="paid", city="München")
     assert paid.tier == "C" and paid.drop_reason is None
-    assert judge.judge(field(title="Career Fair AI", address="81675 Munich"), NOW).tier == "A"
+    assert verdict(title="Career Fair AI", address="81675 Munich").tier == "A"
+
+
+def test_unknown_ai_relevance_surfaces_only_for_ai_focused_organisers():
+    assert verdict(ai_focus=True, title="Monthly meetup #29").tier == "B"
+    general = verdict(ai_focus=False, title="TUM tanzt!", venue="Garching Campus")
+    assert general.tier == "C" and "organiser not AI-focused" in general.reasons[-1]
+    assert verdict(ai_focus=False, title="TUM Blockchain Conference").tier == "C"
+    assert verdict(ai_focus=False, title="Workshop on AI agents").tier == "B"
+    assert verdict(ai_focus=False, title="HackaTUM for computer science").tier == "A"
+    assert verdict(ai_focus=False, title="Firmenkontaktmesse IKOM").tier == "A"
+
+
+def test_online_is_inferred_from_venue_or_meetup_description():
+    zoom = "Join our virtual meetup.\nOnline. **[Register for the Zoom!](https://voxel51.com/x)**"
+    meetup = verdict(title="Oct 14 - Advances in AI at SDSU", description=zoom)
+    assert meetup.drop_reason == "online_only" and "register for the zoom" in meetup.reasons[0]
+    assert verdict(title="AI info session", venue="Online").drop_reason == "online_only"
+    assert verdict(title="AI talks", venue="Live stream on YouTube").drop_reason == "online_only"
+    assert verdict(title="AI day", venue="Online & Munich City Campus").tier == "B"
+    assert verdict(title="AI meetup", venue="TNG, 81925 München", description=zoom).tier == "B"
+    hybrid = verdict(title="AI meetup", description="Join in person or online via the Zoom")
+    assert hybrid.tier == "B"
+
+
+def test_application_is_a_registration_mode_not_a_programme():
+    assert (
+        JUDGE.kind({"title": {"value": "From Prompts to Agents: Practical Applications"}}) is None
+    )
+    assert JUDGE.kind({"title": {"value": "Online Q&A sessions TUMexchange application"}}) is None
+    assert JUDGE.kind({"title": {"value": "AI Fellowship 2027"}}) == "programme"
 
 
 def _router(tmp_path, handler, cap=5):

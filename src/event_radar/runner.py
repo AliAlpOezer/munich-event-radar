@@ -56,6 +56,7 @@ def seed(settings: config.Settings) -> int:
             row["domain"],
             "seed",
             kind=row.get("kind"),
+            ai_focus=row.get("ai_focus", False),
             discovery_url="seed/organisers.yaml",
         )
         for src in row["sources"]:
@@ -153,9 +154,11 @@ def run(settings: config.Settings) -> dict:
                 router = Router(settings.openrouter_key, store, settings.llm_daily_cap)
                 _extract(store, snapshots, Extractor(router, store), profile, counts)
             now = datetime.now(UTC)
+            focused = store.focused_urls()
             resolved = []
             for group in resolve(store.observations()):
-                verdict = judge.judge(group.fields, now)
+                ai_focus = any(o.url in focused for o in group.observations)
+                verdict = judge.judge(group.fields, now, ai_focus=ai_focus)
                 resolved.append((group.aliases, group.fields, group.merge_basis, verdict))
                 counts[f"tier_{verdict.tier or verdict.drop_reason}"] += 1
                 if verdict.tier in {"A", "B"}:

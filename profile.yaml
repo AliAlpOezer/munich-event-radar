@@ -1,5 +1,7 @@
 # Relevance profile (Q3, Q5; ADR 0002 D6). The judge reads this; edit it to tune tiers.
-# Recall first: unknown price or unknown AI relevance never demotes an event.
+# Recall first: unknown price never demotes an event. Unknown AI relevance counts as
+# relevant only for organisers with `ai_focus: true` in seed/organisers.yaml; elsewhere it
+# is C (in the feed, never pushed), so general calendars such as TUM's do not flood B.
 
 munich:
   cities: [münchen, munich, muenchen, garching, garching bei münchen, martinsried, planegg,
@@ -16,6 +18,11 @@ aggregators: [messen.de, munich-startup.de, dealroom.co, brainberg.eu, eventbrit
 a_kinds: [career_fair, conference, symposium, flagship_lecture, hackathon, programme, demo_day,
           industry_talk]
 
+# Kinds that surface even when AI relevance is unknown at an organiser without ai_focus:
+# career fairs bring hiring companies (Q5 tier A), and free hackathons are A by the D6
+# assumption. TUM's central listing is hackaTUM's only dated source until the LLM runs.
+any_topic_kinds: [career_fair, hackathon]
+
 keywords:
   ai: [" ki ", "ki-", "künstliche intelligenz", " ai ", "ai ", " ai", "a.i.", "artificial intelligence",
        "machine learning", "maschinelles lernen", "deep learning", "llm", "nlp", "data science",
@@ -27,7 +34,21 @@ keywords:
     conference: [conference, konferenz, summit, congress, kongress, forum]
     flagship_lecture: [signature lecture, munich ai lecture, distinguished lecture, keynote]
     demo_day: [demo day, pitch night, demo night]
-    programme: [application, bewerbung, apply, fellowship, accelerator, spring class]
+    # Not application, bewerbung or apply: they name a registration mode (reg_mode), and
+    # matched "Practical Applications" and "TUMexchange application" (2026-10-07).
+    programme: [fellowship, accelerator, spring class]
     meetup: [meetup, stammtisch, community night]
     workshop: [workshop, masterclass, bootcamp]
     talk: [talk, vortrag, lecture, panel, diskussion, seminar, colloquium, kolloquium]
+
+# Online-only signals, used when no parser states `attendance`. A venue counts only when the
+# whole venue is one of `venues` (after lowercasing and folding punctuation), so hybrid venues
+# such as "Online & Munich City Campus" stay in. `phrases` count only when the event has no
+# venue or address (Meetup ICS has no LOCATION) and no `in_person` phrase.
+online:
+  venues: [online, online event, online veranstaltung, virtual, virtual event, zoom,
+           microsoft teams, webex, google meet, webinar, livestream, live stream,
+           live stream on youtube]
+  phrases: [register for the zoom, virtual meetup, virtual event, online event, online only,
+            online-only, nur online, online-veranstaltung]
+  in_person: [in person, in-person, vor ort, präsenz, hybrid event, hybride veranstaltung]

@@ -3,22 +3,30 @@
 # kind: feed (ICS/RSS), listing (an events page), event_page (a single event).
 # class is optional: ticket platforms are TICKET, `aggregators` in profile.yaml are AGG,
 # everything else is OWN.
+# ai_focus: true when the organiser's events count as AI-relevant without an AI keyword in
+# their text (profile.yaml). Default false: general calendars (TUM central, BAdW) and startup
+# or cloud groups then need a keyword or the LLM to reach B. ITCS, hackaTUM and DLD are not
+# AI-only, but eval/golden.yaml tags them A, so they carry the flag.
 
 - name: Munich NLP
   domain: luma.com/munichnlp
   kind: community
+  ai_focus: true
   sources: [{url: https://luma.com/munichnlp, kind: listing}]
 - name: appliedAI Developers Munich
   domain: luma.com/appliedaidevelopers
   kind: community
+  ai_focus: true
   sources: [{url: https://luma.com/appliedaidevelopers, kind: listing}]
 - name: TUM Social AI Club
   domain: luma.com/tum-socialaiclub
   kind: student
+  ai_focus: true
   sources: [{url: https://luma.com/tum-socialaiclub, kind: listing}]
 - name: AAIF Community Munich
   domain: luma.com/aaif-munich
   kind: community
+  ai_focus: true
   sources: [{url: https://luma.com/aaif-munich, kind: listing}]
 - name: AWS User Group Munich
   domain: meetup.com/aws-munich
@@ -27,17 +35,20 @@
 - name: Munich AI, ML and Computer Vision Meetup
   domain: meetup.com/munchen-ai-machine-learning-and-computer-vision-meetup
   kind: community
+  ai_focus: true
   sources:
     - {url: "https://www.meetup.com/munchen-ai-machine-learning-and-computer-vision-meetup/events/ical/", kind: feed}
 - name: MDSI (TUM Munich Data Science Institute)
   domain: mdsi.tum.de
   kind: academic
+  ai_focus: true
   sources:
     - {url: https://pretix.eu/MDSI.TUM/events/ical/, kind: feed}
     - {url: https://www.mdsi.tum.de/mdsi/aktuelles/veranstaltungen/, kind: listing}
 - name: MCML (Munich Center for Machine Learning)
   domain: mcml.ai
   kind: academic
+  ai_focus: true
   sources: [{url: https://mcml.ai/events/index.xml, kind: feed, class: AGG}]
 - name: TUM central events
   domain: tum.de
@@ -46,6 +57,7 @@
 - name: AI-HUB@LMU
   domain: lmu.de/ai-hub
   kind: academic
+  ai_focus: true
   sources: [{url: https://www.lmu.de/ai-hub/en/news-events/all-events/, kind: listing}]
 - name: BAdW (Bavarian Academy of Sciences)
   domain: badw.de
@@ -62,26 +74,32 @@
 - name: hackaTUM
   domain: hack.tum.de
   kind: student
+  ai_focus: true
   sources: [{url: https://hack.tum.de/, kind: event_page}]
 - name: TUM.ai
   domain: tum-ai.com
   kind: student
+  ai_focus: true
   sources: [{url: https://www.tum-ai.com/apply, kind: event_page}]
 - name: WiDS Munich
   domain: widsmunich.de
   kind: academic
+  ai_focus: true
   sources: [{url: https://widsmunich.de/, kind: event_page}]
 - name: TUM School of Management, Strategy and Organization
   domain: aistrategyconference.com
   kind: academic
+  ai_focus: true
   sources: [{url: https://aistrategyconference.com/, kind: event_page}]
 - name: ITCS
   domain: it-cs.io
   kind: industry
+  ai_focus: true
   sources: [{url: https://www.it-cs.io/, kind: event_page}]
 - name: DLD (Burda)
   domain: dld-conference.com
   kind: industry
+  ai_focus: true
   sources: [{url: https://dld-conference.com/, kind: event_page, browser: true}]
 - name: START Munich
   domain: startmunich.de
@@ -90,4 +108,5 @@
 - name: baiosphere
   domain: baiosphere.org
   kind: academic
+  ai_focus: true
   sources: [{url: https://baiosphere.org/, kind: listing, browser: true}]
