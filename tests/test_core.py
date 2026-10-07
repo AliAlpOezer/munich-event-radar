@@ -11,7 +11,7 @@ from event_radar.judge import Judge
 from event_radar.model import Evidence, Kind, Observation, SourceClass
 from event_radar.parse import parse
 from event_radar.platforms import platform_key
-from event_radar.resolve import resolve
+from event_radar.resolve import local_minute, resolve
 from event_radar.store import Store
 
 REPO = Path(__file__).resolve().parents[1]
@@ -269,3 +269,11 @@ def test_budget_is_a_ceiling(tmp_path):
     router = _router(tmp_path, lambda r: httpx.Response(503, text='{"error": "overloaded"}'), cap=1)
     with pytest.raises(BudgetExhausted):
         router.complete([], {})
+
+
+def test_board_times_are_munich_local():
+    assert local_minute("2026-10-13T16:30:00+00:00") == "2026-10-13T18:30"
+    assert local_minute("2026-10-29T13:00:00Z") == "2026-10-29T14:00"
+    assert local_minute("2026-10-20T18:00:00+02:00") == "2026-10-20T18:00"
+    assert local_minute("2026-11-30") == "2026-11-30"
+    assert local_minute(None) is None

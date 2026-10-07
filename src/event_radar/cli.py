@@ -4,6 +4,7 @@ from pathlib import Path
 
 from . import config, golden, runner
 from .fetch import Fetcher
+from .resolve import local_minute
 from .snapshots import SnapshotStore
 from .store import Store
 
@@ -41,7 +42,7 @@ def _board(settings: config.Settings) -> None:
         fields = json.loads(event["fields"])
         rows.append(
             (
-                str(_value(fields, "starts_at") or "?")[:16],
+                local_minute(_value(fields, "starts_at")) or "?",
                 event["tier"],
                 _value(fields, "title"),
                 _value(fields, "reg_availability"),

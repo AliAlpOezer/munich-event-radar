@@ -46,17 +46,29 @@ def _norm(text: object) -> str:
     return re.sub(r"[^a-z0-9]+", " ", folded.lower()).strip()
 
 
+def _local(text: str) -> datetime | None:
+    try:
+        moment = datetime.fromisoformat(text.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    return moment.astimezone(BERLIN) if moment.tzinfo else moment
+
+
 def local_date(value: object) -> str | None:
     text = str(value or "")
     if len(text) <= 10:
         return text if re.fullmatch(r"\d{4}-\d{2}-\d{2}", text) else None
-    try:
-        moment = datetime.fromisoformat(text.replace("Z", "+00:00"))
-    except ValueError:
-        return text[:10] if re.match(r"\d{4}-\d{2}-\d{2}", text) else None
-    if moment.tzinfo:
-        moment = moment.astimezone(BERLIN)
-    return moment.date().isoformat()
+    if moment := _local(text):
+        return moment.date().isoformat()
+    return text[:10] if re.match(r"\d{4}-\d{2}-\d{2}", text) else None
+
+
+def local_minute(value: object) -> str | None:
+    text = str(value or "")
+    if len(text) <= 10:
+        return local_date(text)
+    moment = _local(text)
+    return moment.strftime("%Y-%m-%dT%H:%M") if moment else text[:16]
 
 
 def _aliases(obs: Observation) -> set[str]:
