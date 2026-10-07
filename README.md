@@ -19,6 +19,6 @@ programmes in Munich worth Alp's time, with their registration windows. Split ou
 ## Status (2026-10-07)
 
 - Curated radar and calendar moved here with their git history.
-- Next: the event-radar agent and app. Requirements are in wayfinding
-  (`docs/context/wayfinder/event-radar/map.md`); research questions R1-R3 are open, then
-  `system-design`, then UI design.
+- Next: the event-radar agent and app. Requirements: `docs/context/wayfinder/event-radar/map.md`
+  (wayfinding complete). Architecture: `docs/decisions/0002-event-radar-architecture.md`.
+  Then UI design, then implementation.

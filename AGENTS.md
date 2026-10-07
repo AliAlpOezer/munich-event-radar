@@ -41,5 +41,6 @@ available; outside this workstation, keep Markdown pages with YAML metadata, rel
 links, a compact index, and a short update log. Read only task-relevant knowledge.
 Personal skills live at `~/.agents/skills/`; project skills at `.agents/skills/` if present.
 
-Start with `docs/context/event-tracking.md`; the agent design lives in
-`docs/context/wayfinder/event-radar/map.md`.
+Start with `docs/context/event-tracking.md`; the agent's requirements live in
+`docs/context/wayfinder/event-radar/map.md` and its architecture in
+`docs/decisions/0002-event-radar-architecture.md`.
