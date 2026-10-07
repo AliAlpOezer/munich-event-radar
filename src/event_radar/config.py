@@ -2,6 +2,7 @@ import os
 from dataclasses import dataclass
 from pathlib import Path
 
+
 def user_agent() -> str:
     contact = os.environ.get("RADAR_UA_CONTACT")
     suffix = f"; contact {contact}" if contact else ""

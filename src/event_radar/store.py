@@ -193,6 +193,55 @@ class Store:
                 )
         return len(events)
 
+    def enqueue_extraction(self, snapshot_hash: str, url: str, priority: int) -> None:
+        with self.tx() as db:
+            db.execute(
+                "INSERT OR IGNORE INTO extraction_job (snapshot_hash, url, priority)"
+                " VALUES (?, ?, ?)",
+                (snapshot_hash, url, priority),
+            )
+
+    def pending_extractions(self, limit: int) -> list[sqlite3.Row]:
+        with self.tx() as db:
+            return db.execute(
+                "SELECT * FROM extraction_job WHERE state = 'pending'"
+                " ORDER BY priority, attempts LIMIT ?",
+                (limit,),
+            ).fetchall()
+
+    def finish_extraction(self, snapshot_hash: str, url: str, state: str) -> None:
+        with self.tx() as db:
+            db.execute(
+                "UPDATE extraction_job SET state = ?, attempts = attempts + 1"
+                " WHERE snapshot_hash = ? AND url = ?",
+                (state, snapshot_hash, url),
+            )
+
+    def cached_extraction(self, content_hash: str, version: str) -> dict | None:
+        with self.tx() as db:
+            row = db.execute(
+                "SELECT result FROM extraction WHERE content_hash = ? AND version = ?",
+                (content_hash, version),
+            ).fetchone()
+        return json.loads(row["result"]) if row else None
+
+    def cache_extraction(self, content_hash: str, version: str, model: str, result: dict) -> None:
+        with self.tx() as db:
+            db.execute(
+                "INSERT OR REPLACE INTO extraction VALUES (?, ?, ?, ?, ?)",
+                (content_hash, version, model, json.dumps(result, ensure_ascii=False), now_iso()),
+            )
+
+    def spend(self, provider: str, cap: int) -> bool:
+        day = datetime.now(UTC).date().isoformat()
+        with self.tx() as db:
+            db.execute("INSERT OR IGNORE INTO budget (provider, day) VALUES (?, ?)", (provider, day))
+            cursor = db.execute(
+                "UPDATE budget SET used = used + 1 WHERE provider = ? AND day = ? AND used < ?",
+                (provider, day, cap),
+            )
+            return cursor.rowcount == 1
+
     def observations(self) -> list[Observation]:
         with self.tx() as db:
             rows = db.execute("SELECT * FROM observation ORDER BY id").fetchall()

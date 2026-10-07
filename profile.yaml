@@ -1,0 +1,33 @@
+# Relevance profile (Q3, Q5; ADR 0002 D6). The judge reads this; edit it to tune tiers.
+# Recall first: unknown price or unknown AI relevance never demotes an event.
+
+munich:
+  cities: [münchen, munich, muenchen, garching, garching bei münchen, martinsried, planegg,
+           unterschleißheim, oberschleißheim, ismaning, unterföhring, aschheim, feldkirchen]
+  postal_codes: ["80", "81", "85748", "85716", "85764", "82152", "85737", "85774", "85609"]
+
+# Hosts whose pages list other organisers' events (AGG). Ticket platforms are TICKET;
+# everything else is the organiser's own page (OWN).
+aggregators: [messen.de, munich-startup.de, dealroom.co, brainberg.eu, eventbrite.com/d/,
+              allevents.in, 10times.com]
+
+# Kinds that make a free, in-person, AI-relevant event A. Everything else free is B.
+# Assumption (D6): free hackathons and programmes with an application window are A.
+a_kinds: [career_fair, conference, symposium, flagship_lecture, hackathon, programme, demo_day,
+          industry_talk]
+
+keywords:
+  ai: [" ki ", "ki-", "künstliche intelligenz", " ai ", "ai ", " ai", "a.i.", "artificial intelligence",
+       "machine learning", "maschinelles lernen", "deep learning", "llm", "nlp", "data science",
+       "agent", "genai", "generative", "neural", "computer vision", "robotics", "mlops"]
+  kinds:
+    career_fair: [career fair, karrieremesse, job fair, jobmesse, recruiting day, firmenkontaktmesse]
+    hackathon: [hackathon, makeathon, hacka, datathon]
+    symposium: [symposium, symposien]
+    conference: [conference, konferenz, summit, congress, kongress, forum]
+    flagship_lecture: [signature lecture, munich ai lecture, distinguished lecture, keynote]
+    demo_day: [demo day, pitch night, demo night]
+    programme: [application, bewerbung, apply, fellowship, accelerator, spring class]
+    meetup: [meetup, stammtisch, community night]
+    workshop: [workshop, masterclass, bootcamp]
+    talk: [talk, vortrag, lecture, panel, diskussion, seminar, colloquium, kolloquium]
