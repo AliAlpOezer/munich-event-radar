@@ -52,7 +52,10 @@ def test_user_status_follows_the_allowed_transitions(client):
 
 def test_page_and_assets_are_served(client):
     assert "Event Radar" in client.get("/").text
-    assert client.get("/static/app.js").status_code == 200
+    script = client.get("/static/app.js")
+    assert script.status_code == 200 and script.headers["cache-control"] == "no-cache"
+    again = client.get("/static/app.js", headers={"If-None-Match": script.headers["etag"]})
+    assert again.status_code == 304
 
 
 def test_a_share_image_on_many_events_is_not_a_cover(tmp_path):

@@ -2,7 +2,7 @@ import json
 from collections import Counter
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
@@ -182,6 +182,15 @@ def create_app(store: Store, intake: IntakeService | None = None) -> FastAPI:
     @app.get("/")
     def index() -> FileResponse:
         return FileResponse(STATIC / "index.html")
+
+    # Asset URLs carry no version, so browsers must revalidate (cheap 304s via ETag);
+    # otherwise a cached old app.js can run against a newer page after a deploy.
+    @app.middleware("http")
+    async def revalidate(request: Request, call_next):
+        response = await call_next(request)
+        if request.url.path == "/" or request.url.path.startswith("/static/"):
+            response.headers["Cache-Control"] = "no-cache"
+        return response
 
     app.mount("/static", StaticFiles(directory=STATIC), name="static")
     return app
