@@ -6,13 +6,13 @@
   <title>Event Radar</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@400;500&display=swap">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@400;500&family=Space+Grotesk:wght@500;700&display=swap">
   <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
   <header class="bar">
     <div class="bar-inner">
-      <a class="brand" href="#timeline">Event Radar <span>Munich</span></a>
+      <a class="brand" href="#timeline"><b>Event Radar</b> <span>Munich</span></a>
       <nav class="tabs" role="tablist" aria-label="Views">
         <a role="tab" id="tab-timeline" href="#timeline" aria-controls="view-timeline">Timeline</a>
         <a role="tab" id="tab-organisations" href="#organisations" aria-controls="view-organisations">Organisations</a>
@@ -34,21 +34,21 @@
           <span>Organiser</span>
           <select id="org-filter"><option value="">All organisers</option></select>
         </label>
-        <fieldset class="field">
-          <legend>Tier</legend>
+        <div class="field" role="group" aria-labelledby="tier-label">
+          <span id="tier-label">Tier</span>
           <div class="toggles" id="tier-toggles">
             <button type="button" class="toggle" data-tier="A" aria-pressed="true">A <span class="n"></span></button>
             <button type="button" class="toggle" data-tier="B" aria-pressed="true">B <span class="n"></span></button>
             <button type="button" class="toggle" data-tier="C" aria-pressed="true">C <span class="n"></span></button>
           </div>
-        </fieldset>
-        <fieldset class="field">
-          <legend>Also show</legend>
+        </div>
+        <div class="field" role="group" aria-labelledby="also-label">
+          <span id="also-label">Also show</span>
           <div class="toggles">
             <button type="button" class="toggle" id="show-past" aria-pressed="false">Past <span class="n"></span></button>
             <button type="button" class="toggle" id="show-dropped" aria-pressed="false">Online or outside Munich <span class="n"></span></button>
           </div>
-        </fieldset>
+        </div>
       </div>
       <p class="count" id="timeline-count"></p>
       <div id="timeline-list" class="timeline"></div>
