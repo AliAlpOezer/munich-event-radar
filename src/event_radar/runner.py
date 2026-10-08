@@ -159,7 +159,8 @@ def run(settings: config.Settings) -> dict:
             for group in resolve(store.observations()):
                 ai_focus = any(o.url in focused for o in group.observations)
                 verdict = judge.judge(group.fields, now, ai_focus=ai_focus)
-                resolved.append((group.aliases, group.fields, group.merge_basis, verdict))
+                urls = sorted({o.url for o in group.observations})
+                resolved.append((group.aliases, group.fields, group.merge_basis, verdict, urls))
                 counts[f"tier_{verdict.tier or verdict.drop_reason}"] += 1
                 if verdict.tier in {"A", "B"}:
                     store.set_cadence([o.url for o in group.observations], HOT_HOURS)

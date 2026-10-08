@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Event Radar</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@400;500&display=swap">
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <header class="bar">
+    <div class="bar-inner">
+      <a class="brand" href="#timeline">Event Radar <span>Munich</span></a>
+      <nav class="tabs" role="tablist" aria-label="Views">
+        <a role="tab" id="tab-timeline" href="#timeline" aria-controls="view-timeline">Timeline</a>
+        <a role="tab" id="tab-organisations" href="#organisations" aria-controls="view-organisations">Organisations</a>
+      </nav>
+      <div class="run" id="run-status" aria-live="polite"><span class="run-dot" aria-hidden="true"></span><span class="run-text">Loading</span></div>
+    </div>
+  </header>
+
+  <main class="page">
+    <div class="banner" id="banner" role="alert" hidden></div>
+
+    <section id="view-timeline" role="tabpanel" aria-labelledby="tab-timeline">
+      <div class="toolbar">
+        <label class="field grow">
+          <span>Search</span>
+          <input id="q" type="search" autocomplete="off">
+        </label>
+        <label class="field">
+          <span>Organiser</span>
+          <select id="org-filter"><option value="">All organisers</option></select>
+        </label>
+        <fieldset class="field">
+          <legend>Tier</legend>
+          <div class="toggles" id="tier-toggles">
+            <button type="button" class="toggle" data-tier="A" aria-pressed="true">A <span class="n"></span></button>
+            <button type="button" class="toggle" data-tier="B" aria-pressed="true">B <span class="n"></span></button>
+            <button type="button" class="toggle" data-tier="C" aria-pressed="true">C <span class="n"></span></button>
+          </div>
+        </fieldset>
+        <fieldset class="field">
+          <legend>Also show</legend>
+          <div class="toggles">
+            <button type="button" class="toggle" id="show-past" aria-pressed="false">Past <span class="n"></span></button>
+            <button type="button" class="toggle" id="show-dropped" aria-pressed="false">Online or outside Munich <span class="n"></span></button>
+          </div>
+        </fieldset>
+      </div>
+      <p class="count" id="timeline-count"></p>
+      <div id="timeline-list" class="timeline"></div>
+    </section>
+
+    <section id="view-organisations" role="tabpanel" aria-labelledby="tab-organisations" hidden>
+      <div class="toolbar">
+        <label class="field grow">
+          <span>Search</span>
+          <input id="org-q" type="search" autocomplete="off">
+        </label>
+        <label class="field">
+          <span>Kind</span>
+          <select id="org-kind"><option value="">All kinds</option></select>
+        </label>
+        <label class="field">
+          <span>Sort</span>
+          <select id="org-sort">
+            <option value="upcoming">Most upcoming events</option>
+            <option value="problems">Problems first</option>
+            <option value="name">Name</option>
+          </select>
+        </label>
+      </div>
+      <p class="count" id="org-count"></p>
+      <div id="org-list" class="orgs"></div>
+    </section>
+  </main>
+
+  <div class="scrim" id="scrim" hidden></div>
+  <aside class="drawer" id="drawer" role="dialog" aria-modal="true" aria-labelledby="drawer-title" hidden>
+    <div class="drawer-head">
+      <span class="tier-badge" id="drawer-tier"></span>
+      <h2 id="drawer-title"></h2>
+      <button type="button" class="btn ghost" id="drawer-close">Close</button>
+    </div>
+    <div class="drawer-body" id="drawer-body"></div>
+  </aside>
+
+  <script src="/static/app.js" defer></script>
+</body>
+</html>

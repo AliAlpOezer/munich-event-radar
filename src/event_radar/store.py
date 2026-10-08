@@ -6,7 +6,7 @@ from contextlib import contextmanager
 from datetime import UTC, datetime
 from pathlib import Path
 
-from .model import Evidence, Observation, SourceClass
+from .model import USER_TRANSITIONS, Evidence, Observation, SourceClass, UserStatus
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS organiser (
@@ -73,6 +73,7 @@ CREATE TABLE IF NOT EXISTS event (
     tier TEXT,
     tier_reasons TEXT,
     drop_reason TEXT,
+    sources TEXT NOT NULL DEFAULT '[]',
     first_seen TEXT NOT NULL,
     updated_at TEXT NOT NULL
 );
@@ -126,7 +127,10 @@ CREATE TABLE IF NOT EXISTS run (
     summary TEXT
 );
 """
-MIGRATIONS = (("organiser", "ai_focus", "INTEGER NOT NULL DEFAULT 0"),)
+MIGRATIONS = (
+    ("organiser", "ai_focus", "INTEGER NOT NULL DEFAULT 0"),
+    ("event", "sources", "TEXT NOT NULL DEFAULT '[]'"),
+)
 
 
 def now_iso() -> str:
@@ -381,11 +385,13 @@ class Store:
                 [(hours, u) for u in urls],
             )
 
-    def save_events(self, resolved: list[tuple[set[str], dict, str, object]]) -> dict[str, int]:
+    def save_events(
+        self, resolved: list[tuple[set[str], dict, str, object, list[str]]]
+    ) -> dict[str, int]:
         stamp = now_iso()
         counts = {"new": 0, "updated": 0, "merged": 0}
         with self.tx() as db:
-            for aliases, fields, basis, verdict in resolved:
+            for aliases, fields, basis, verdict, sources in resolved:
                 marks = ",".join("?" for _ in aliases)
                 found = db.execute(
                     f"SELECT DISTINCT e.key, e.first_seen FROM event_alias a JOIN event e"
@@ -408,11 +414,11 @@ class Store:
                 counts["updated" if found else "new"] += 1
                 db.execute(
                     "INSERT INTO event (key, fields, merge_basis, tier, tier_reasons, drop_reason,"
-                    " first_seen, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
+                    " sources, first_seen, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"
                     " ON CONFLICT (key) DO UPDATE SET fields = excluded.fields,"
                     " merge_basis = excluded.merge_basis, tier = excluded.tier,"
                     " tier_reasons = excluded.tier_reasons, drop_reason = excluded.drop_reason,"
-                    " updated_at = excluded.updated_at",
+                    " sources = excluded.sources, updated_at = excluded.updated_at",
                     (
                         key,
                         json.dumps(fields, ensure_ascii=False, sort_keys=True),
@@ -420,6 +426,7 @@ class Store:
                         verdict.tier,
                         json.dumps(verdict.reasons),
                         verdict.drop_reason,
+                        json.dumps(sorted(sources)),
                         stamp,
                         stamp,
                     ),
@@ -435,6 +442,36 @@ class Store:
                 "SELECT e.*, COALESCE(u.status, 'none') AS user_status FROM event e"
                 " LEFT JOIN user_state u ON u.event_key = e.key"
             ).fetchall()
+
+    def organisers(self) -> list[sqlite3.Row]:
+        with self.tx() as db:
+            return db.execute("SELECT * FROM organiser ORDER BY name").fetchall()
+
+    def sources(self) -> list[sqlite3.Row]:
+        with self.tx() as db:
+            return db.execute("SELECT * FROM source ORDER BY id").fetchall()
+
+    def runs(self, limit: int) -> list[sqlite3.Row]:
+        with self.tx() as db:
+            return db.execute("SELECT * FROM run ORDER BY id DESC LIMIT ?", (limit,)).fetchall()
+
+    def set_user_status(self, event_key: str, status: UserStatus) -> UserStatus:
+        with self.tx() as db:
+            if not db.execute("SELECT 1 FROM event WHERE key = ?", (event_key,)).fetchone():
+                raise KeyError(event_key)
+            row = db.execute(
+                "SELECT status FROM user_state WHERE event_key = ?", (event_key,)
+            ).fetchone()
+            current = UserStatus(row["status"]) if row else UserStatus.NONE
+            if status not in USER_TRANSITIONS[current]:
+                raise ValueError(f"{current} cannot become {status}")
+            db.execute(
+                "INSERT INTO user_state (event_key, status, updated_at) VALUES (?, ?, ?)"
+                " ON CONFLICT (event_key) DO UPDATE SET status = excluded.status,"
+                " updated_at = excluded.updated_at",
+                (event_key, status.value, now_iso()),
+            )
+        return status
 
     def start_run(self) -> int:
         with self.tx() as db:

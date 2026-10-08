@@ -368,6 +368,24 @@ reviewed, committed, then imported with `discovered_via=seed` and each row's sou
 **Rejected:** parsing the research Markdown at runtime. The tables have mixed shapes, and
 `research/` is raw intake by repo rule, not an input contract.
 
+### D15. Web app: a JSON API and a zero-build page, served from the box over Tailscale (2026-10-08)
+`event_radar.web` is FastAPI with three read routes (`/api/events`, `/api/organisers`,
+`/api/status`) and one write (`POST /api/events/{key}/status`, the `user_status`
+transitions). It is the apartment agent's dashboard pattern: a hand-written HTML, CSS and JS
+page that polls every minute and reloads when a new run finishes. It runs as
+`event-radar-web.service` on port 8010, bound to the box's Tailscale address. Two tabs, as
+Alp asked: Timeline (every event by month and day, filters for tier, organiser, search, past
+and dropped) and Organisations (the registry, source health, and each organiser's events).
+One event opens in a side panel with registration, tier reasons, sources and status
+buttons; `#event-<key>` links to it. Events store the URLs of their observations (`sources`)
+so that the page can name the organisers behind each one.
+**Rejected:** a static snapshot published as a claude.ai page (2026-10-07; Alp: not live, no
+tabs, no status writes); React or Next.js (a Node build on the box for one user and about
+200 rows); server-rendered HTMX (fine, but it departs from the sibling project's pattern,
+and client-side filtering of a few hundred events is instant).
+**Cost:** the page holds its own rendering code, and the fonts load from Google Fonts with a
+system fallback.
+
 ## Acceptance check (Q5, made concrete)
 
 - **Golden set** `eval/golden.yaml`: every event in the 2026-10-07 sweeps, tagged A, B or C
@@ -393,7 +411,7 @@ Each step ends on something checkable.
    Eventbrite API), resolver and judge. Check: the offline replay on structured sources.
 3. Extractor, router and verifier. Check: the replay on the CMS pages.
 4. Calendar reconciler, notifier, healthchecks. Check: a dry run against a test calendar.
-5. Web app, designed in the UI phase with the taste skill.
+5. Web app, designed in the UI phase with the taste skill. Built 2026-10-08 (D15).
 6. Discovery, the browser unit, the exporter.
 
 ## Open questions
