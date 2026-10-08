@@ -25,13 +25,13 @@ LLM_ATTEMPTS = 3
 
 
 @contextlib.contextmanager
-def single_flight(path: Path):
+def single_flight(path: Path, wait: bool = False):
     path.parent.mkdir(parents=True, exist_ok=True)
     handle = path.open("w")
     try:
         import fcntl
 
-        fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        fcntl.flock(handle, fcntl.LOCK_EX | (0 if wait else fcntl.LOCK_NB))
     except ImportError:
         pass
     except BlockingIOError as exc:
@@ -83,39 +83,50 @@ def _ping(settings: config.Settings, suffix: str, body: dict | None = None) -> N
         httpx.post(settings.healthcheck_url + suffix, content=json.dumps(body or {}), timeout=10)
 
 
-def _harvest(store, fetcher, snapshots, profile, counts: Counter) -> None:
-    now = datetime.now(UTC).isoformat(timespec="seconds")
-    for source in store.due_sources(now):
+def harvest_one(store, fetcher, snapshots, profile, source, counts: Counter, renderer=None):
+    """Fetch one source, or render it when it is a browser source, and ingest it."""
+    if source["browser"]:
+        if renderer is None:
+            return
+        fetched = renderer.fetch(source["url"])
+    else:
         fetched = fetcher.get(source["url"])
-        if not fetched.ok:
-            store.mark_source(source["id"], False, fetched.error, None)
-            counts["fetch_errors"] += 1
-            continue
-        result = ingest(
-            store,
-            source["url"],
-            fetched.content_hash,
-            fetched.content_type,
-            snapshots.get(fetched.content_hash),
-            Kind(source["kind"]),
-            SourceClass(source["source_class"]),
+    if not fetched.ok:
+        store.mark_source(source["id"], False, fetched.error, None)
+        counts["fetch_errors"] += 1
+        return
+    result = ingest(
+        store,
+        source["url"],
+        fetched.content_hash,
+        fetched.content_type,
+        snapshots.get(fetched.content_hash),
+        Kind(source["kind"]),
+        SourceClass(source["source_class"]),
+        base=fetched.final_url,
+    )
+    store.mark_source(source["id"], True, None, len(result.events) + len(result.follow))
+    counts["fetched"] += 1
+    counts["observed"] += len(result.events)
+    for link in result.follow:
+        store.add_source(
+            link,
+            _follow_kind(link).value,
+            source_class(link, profile["aggregators"]).value,
+            EVENT_PAGE_HOURS,
+            f"link:{source['url']}",
+            source["organiser_id"],
         )
-        store.mark_source(source["id"], True, None, len(result.events) + len(result.follow))
-        counts["fetched"] += 1
-        counts["observed"] += len(result.events)
-        for link in result.follow:
-            store.add_source(
-                link,
-                _follow_kind(link).value,
-                source_class(link, profile["aggregators"]).value,
-                EVENT_PAGE_HOURS,
-                f"link:{source['url']}",
-                source["organiser_id"],
-            )
 
 
-def _extract(store, snapshots, extractor, profile, counts: Counter) -> None:
-    for job in store.pending_extractions(limit=100):
+def _harvest(store, fetcher, snapshots, profile, counts: Counter, renderer=None) -> None:
+    now = datetime.now(UTC).isoformat(timespec="seconds")
+    for source in store.due_sources(now, browser=renderer is not None):
+        harvest_one(store, fetcher, snapshots, profile, source, counts, renderer)
+
+
+def extract(store, snapshots, extractor, profile, counts: Counter, urls=None) -> None:
+    for job in store.pending_extractions(limit=100, urls=urls):
         body = snapshots.get(job["snapshot_hash"])
         try:
             extractor(
@@ -137,6 +148,39 @@ def _extract(store, snapshots, extractor, profile, counts: Counter) -> None:
         counts["llm_done"] += 1
 
 
+def judge_events(store, judge, counts: Counter) -> None:
+    now = datetime.now(UTC)
+    focused = store.focused_urls()
+    resolved = []
+    for group in resolve(store.observations()):
+        ai_focus = any(o.url in focused for o in group.observations)
+        verdict = judge.judge(group.fields, now, ai_focus=ai_focus)
+        urls = sorted({o.url for o in group.observations})
+        resolved.append((group.aliases, group.fields, group.merge_basis, verdict, urls))
+        counts[f"tier_{verdict.tier or verdict.drop_reason}"] += 1
+        if verdict.tier in {"A", "B"}:
+            store.set_cadence([o.url for o in group.observations], HOT_HOURS)
+    counts.update(store.save_events(resolved))
+
+
+def browse(settings: config.Settings) -> dict:
+    """ADR 0002 D11, ADR 0003 D3: render the due JavaScript-only sources."""
+    from .render import Renderer
+
+    store = Store(settings.db_path)
+    snapshots = SnapshotStore(settings.snapshot_dir)
+    profile = _profile(settings)
+    counts: Counter = Counter()
+    fetcher = Fetcher(store, snapshots, config.user_agent())
+    with (
+        single_flight(settings.data_dir / "run.lock", wait=True),
+        Renderer(fetcher, snapshots) as renderer,
+    ):
+        _harvest(store, fetcher, snapshots, profile, counts, renderer)
+        judge_events(store, Judge(profile), counts)
+    return dict(counts)
+
+
 def run(settings: config.Settings) -> dict:
     store = Store(settings.db_path)
     snapshots = SnapshotStore(settings.snapshot_dir)
@@ -152,19 +196,8 @@ def run(settings: config.Settings) -> dict:
             )
             if settings.openrouter_key:
                 router = Router(settings.openrouter_key, store, settings.llm_daily_cap)
-                _extract(store, snapshots, Extractor(router, store), profile, counts)
-            now = datetime.now(UTC)
-            focused = store.focused_urls()
-            resolved = []
-            for group in resolve(store.observations()):
-                ai_focus = any(o.url in focused for o in group.observations)
-                verdict = judge.judge(group.fields, now, ai_focus=ai_focus)
-                urls = sorted({o.url for o in group.observations})
-                resolved.append((group.aliases, group.fields, group.merge_basis, verdict, urls))
-                counts[f"tier_{verdict.tier or verdict.drop_reason}"] += 1
-                if verdict.tier in {"A", "B"}:
-                    store.set_cadence([o.url for o in group.observations], HOT_HOURS)
-            counts.update(store.save_events(resolved))
+                extract(store, snapshots, Extractor(router, store), profile, counts)
+            judge_events(store, judge, counts)
         except Exception as exc:
             store.finish_run(run_id, "failed", {**counts, "error": repr(exc)[:500]})
             _ping(settings, "/fail", {**counts, "error": repr(exc)[:500]})

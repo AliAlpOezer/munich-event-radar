@@ -3,6 +3,7 @@ import argparse
 import uvicorn
 
 from .. import config
+from ..intake import IntakeService
 from ..store import Store
 from . import create_app
 
@@ -12,7 +13,11 @@ def main() -> None:
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=8010)
     args = parser.parse_args()
-    app = create_app(Store(config.load().db_path))
+    settings = config.load()
+    store = Store(settings.db_path)
+    intake = IntakeService(settings, store)
+    intake.start()
+    app = create_app(store, intake)
     uvicorn.run(app, host=args.host, port=args.port, log_level="warning")
 
 

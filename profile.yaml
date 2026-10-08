@@ -52,3 +52,12 @@ online:
   phrases: [register for the zoom, virtual meetup, virtual event, online event, online only,
             online-only, nur online, online-veranstaltung]
   in_person: [in person, in-person, vor ort, präsenz, hybrid event, hybride veranstaltung]
+
+# Organisation intake (ADR 0003). An anchor whose text or path contains one of these words
+# is a candidate event source when a submitted site has no feed. Lower case; matched as
+# whole words in the link text and as path segments.
+intake:
+  link_signals: [events, event, upcoming, veranstaltungen, veranstaltung, termine, termin,
+                 kalender, calendar, agenda, meetups, meetup, workshops, hackathons]
+  # Link text that points to an about or imprint page, which step 2 gives the LLM.
+  about_signals: [about, about us, über uns, ueber uns, impressum, imprint, legal notice, team]

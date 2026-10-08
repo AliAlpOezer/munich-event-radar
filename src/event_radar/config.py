@@ -37,8 +37,19 @@ def _path(name: str) -> Path | None:
     return Path(value) if value else None
 
 
+def _dotenv(path: Path) -> None:
+    """Local development: a gitignored `.env` in the repo; the real environment wins."""
+    if not path.is_file():
+        return
+    for line in path.read_text(encoding="utf-8").splitlines():
+        name, sep, value = line.strip().partition("=")
+        if sep and not name.startswith("#"):
+            os.environ.setdefault(name.strip(), value.strip().strip("\"'"))
+
+
 def load() -> Settings:
     repo = Path(__file__).resolve().parents[2]
+    _dotenv(repo / ".env")
     return Settings(
         data_dir=_path("RADAR_DATA_DIR") or repo / "data",
         repo_dir=repo,

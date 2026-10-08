@@ -20,6 +20,7 @@ class Fetched:
     content_type: str | None
     changed: bool
     error: str | None = None
+    final_url: str | None = None
 
     @property
     def ok(self) -> bool:

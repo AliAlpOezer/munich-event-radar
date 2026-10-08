@@ -60,6 +60,7 @@ COMMANDS = {
     "replay": _replay,
     "seed": lambda s: print(f"seeded {runner.seed(s)} organisers"),
     "run": lambda s: print(json.dumps(runner.run(s))),
+    "browse": lambda s: print(json.dumps(runner.browse(s))),
     "board": _board,
 }
 

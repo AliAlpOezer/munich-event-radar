@@ -17,11 +17,29 @@ const TIER_MEANING = {
   C: "In scope but not pushed: AI relevance unknown, paid, or not AI-focused.",
 };
 const DROP_LABEL = { past: "Past", online_only: "Online only", outside_munich: "Outside Munich" };
+const INTAKE_POLL_MS = 2000;
+const INTAKE_STEPS = [
+  ["checking", "Check that the website works"],
+  ["profiling", "Find out who they are"],
+  ["finding", "Find their event pages"],
+  ["harvesting", "Collect events, tickets and deadlines"],
+  ["done", "On the radar"],
+];
+const INTAKE_LABEL = {
+  queued: "Waiting", checking: "Checking", profiling: "Checking who they are", review: "Needs your decision",
+  finding: "Finding event pages", harvesting: "Collecting events", done: "Added", rejected: "Rejected", failed: "Failed",
+};
+const INTAKE_FINAL = new Set(["done", "rejected", "failed"]);
 
 const state = {
   events: [],
   organisers: [],
   orgById: new Map(),
+  intakes: [],
+  intakeEnabled: false,
+  drawerMode: null,
+  openIntakeId: null,
+  intakeTimer: null,
   runMark: null,
   openKey: null,
   opener: null,
@@ -144,11 +162,14 @@ async function getJSON(url, options) {
   return response.json();
 }
 async function loadAll() {
-  const [events, organisers, status] = await Promise.all([
+  const [events, organisers, status, intakes] = await Promise.all([
     getJSON("/api/events"),
     getJSON("/api/organisers"),
     getJSON("/api/status"),
+    getJSON("/api/intakes"),
   ]);
+  state.intakes = intakes.intakes;
+  state.intakeEnabled = intakes.enabled;
   state.events = events.events;
   state.organisers = organisers.organisers;
   state.orgById = new Map(state.organisers.map((o) => [o.id, o]));
@@ -396,7 +417,8 @@ function renderOrganisations() {
           <span class="org-name"><strong>${esc(org.name)}</strong><span class="domain">${esc(org.domain)}</span></span>
           <span class="org-tags"><span class="chip">${esc(org.kind || "unknown kind")}</span>
             ${org.ai_focus ? `<span class="chip accent" title="Events count as AI-relevant without an AI keyword">AI focus</span>` : ""}
-            ${org.status !== "active" ? `<span class="chip warn">${esc(org.status)}</span>` : ""}</span>
+            ${org.discovered_via === "manual" ? `<span class="chip" title="Added from this page">Added by hand</span>` : ""}
+            ${org.status !== "active" ? `<span class="chip warn"${org.status === "dormant" ? ` title="No upcoming event found yet; its sources are still checked"` : ""}>${esc(org.status)}</span>` : ""}</span>
           <span class="org-counts">${counts}<span class="org-health"><span class="chip ${health.cls}">${esc(health.text)}</span></span></span>
         </summary>
         <div class="org-body">
@@ -498,8 +520,12 @@ function renderDrawer(ev) {
 function openDrawer(key, opener) {
   const ev = state.events.find((e) => e.key === key);
   if (!ev) return;
+  stopIntakePoll();
+  state.drawerMode = "event";
+  state.openIntakeId = null;
   state.openKey = key;
   state.opener = opener || null;
+  $("drawer-tier").hidden = false;
   renderDrawer(ev);
   history.replaceState(null, "", `#event-${key}`);
   $("drawer").hidden = false;
@@ -507,6 +533,9 @@ function openDrawer(key, opener) {
   $("drawer-close").focus();
 }
 function closeDrawer() {
+  stopIntakePoll();
+  state.drawerMode = null;
+  state.openIntakeId = null;
   state.openKey = null;
   history.replaceState(null, "", state.tabHash);
   $("drawer").hidden = true;
@@ -529,6 +558,235 @@ async function changeStatus(ev, status) {
   }
 }
 
+/* Adding an organisation (ADR 0003) */
+function intakeTitle(intake) {
+  if (intake.name) return intake.name;
+  if (intake.profile?.name) return intake.profile.name;
+  try {
+    return new URL(intake.url).hostname.replace(/^www\./, "");
+  } catch {
+    return intake.url;
+  }
+}
+function intakeChip(intake) {
+  const cls = { done: "ok", review: "warn", rejected: "bad", failed: "bad" }[intake.state] || "accent";
+  return `<span class="chip ${cls}">${esc(INTAKE_LABEL[intake.state] || intake.state)}</span>`;
+}
+function renderIntakes() {
+  $("add-org").hidden = !state.intakeEnabled;
+  const recent = state.intakes
+    .filter((i) => !INTAKE_FINAL.has(i.state) || Date.now() - new Date(i.updated_at).getTime() < 3 * 86400000)
+    .slice(0, 5);
+  const box = $("intakes");
+  box.hidden = !recent.length;
+  if (!recent.length) return;
+  box.innerHTML = `<h2>Recently added</h2>` + recent.map((i) => {
+    const last = i.log[i.log.length - 1];
+    return `<button type="button" class="intake-row" data-intake="${i.id}">
+      <span class="main"><span class="title">${esc(intakeTitle(i))}</span>
+        <span class="meta">${esc(last ? last.text : i.url)}</span></span>
+      ${intakeChip(i)}
+    </button>`;
+  }).join("");
+}
+function stopIntakePoll() {
+  clearTimeout(state.intakeTimer);
+  state.intakeTimer = null;
+}
+function showDrawer(title, opener) {
+  $("drawer-tier").hidden = true;
+  $("drawer-title").textContent = title;
+  if (opener) state.opener = opener;
+  $("drawer").hidden = false;
+  $("scrim").hidden = false;
+}
+function openAddForm(opener) {
+  stopIntakePoll();
+  state.drawerMode = "form";
+  state.openKey = null;
+  state.openIntakeId = null;
+  history.replaceState(null, "", "#add-organisation");
+  showDrawer("Add an organisation", opener);
+  $("drawer-body").innerHTML = `
+    <p class="note">Give the organisation's website. The radar checks that it works, asks the LLM who they are,
+      finds their event pages, and collects their events with tickets and registration deadlines.</p>
+    <form class="form" id="intake-form" novalidate>
+      <label class="field"><span>Website</span>
+        <input type="url" name="url" required placeholder="https://www.cdtm.com" autocomplete="url" inputmode="url"></label>
+      <label class="field"><span>Events page <span class="hint">optional, if you know it</span></span>
+        <input type="url" name="events_url" placeholder="https://www.example.org/events" inputmode="url"></label>
+      <label class="field"><span>Name <span class="hint">optional</span></span>
+        <input type="text" name="name" autocomplete="organization"></label>
+      <p class="form-error" id="intake-error" role="alert" hidden></p>
+      <div class="row-actions"><button type="submit" class="btn primary">Check and add</button></div>
+    </form>`;
+  const form = $("intake-form");
+  form.elements.url.focus();
+  form.addEventListener("submit", submitIntake);
+}
+async function submitIntake(e) {
+  e.preventDefault();
+  const form = e.currentTarget;
+  const fields = form.elements;
+  const error = $("intake-error");
+  const button = form.querySelector("button[type=submit]");
+  error.hidden = true;
+  if (!fields.url.value.trim()) {
+    error.textContent = "Enter the organisation's website.";
+    error.hidden = false;
+    fields.url.focus();
+    return;
+  }
+  button.disabled = true;
+  try {
+    const intake = await getJSON("/api/intakes", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        url: fields.url.value,
+        events_url: fields.events_url.value || null,
+        name: fields.name.value || null,
+      }),
+    });
+    upsertIntake(intake);
+    renderIntakes();
+    openIntake(intake.id);
+  } catch (err) {
+    error.textContent = err.message;
+    error.hidden = false;
+    button.disabled = false;
+  }
+}
+function upsertIntake(intake) {
+  const at = state.intakes.findIndex((i) => i.id === intake.id);
+  if (at >= 0) state.intakes[at] = intake;
+  else state.intakes.unshift(intake);
+}
+function stepMarks(intake) {
+  const order = INTAKE_STEPS.map(([key]) => key);
+  if (intake.state === "done") return order.map(() => "done");
+  let at = Math.max(order.indexOf(intake.state), 0);
+  let mark = "active";
+  if (intake.state === "review" || intake.state === "rejected") [at, mark] = [1, "stopped"];
+  if (intake.state === "failed") {
+    const reached = intake.log.map((entry) => order.indexOf(entry.step)).filter((i) => i >= 0);
+    [at, mark] = [reached.length ? Math.max(...reached) : 0, "failed"];
+  }
+  return order.map((_, i) => (i < at ? "done" : i === at ? mark : ""));
+}
+function profileCard(profile) {
+  if (!profile || !profile.summary) return "";
+  const verdict = (value, label) => {
+    const cls = value === "yes" ? "ok" : value === "no" ? "bad" : "warn";
+    const text = value === "yes" ? label : value === "no" ? `Not: ${label.toLowerCase()}` : `${label}: unclear`;
+    return `<span class="chip ${cls}">${esc(text)}</span>`;
+  };
+  return `<section class="profile-card"><h3>What the LLM found</h3>
+    <p class="description">${esc(profile.summary)}</p>
+    <div class="chips">${verdict(profile.legitimate, "Genuine")}${verdict(profile.runs_events, "Runs events")}
+      ${verdict(profile.based_in_munich, "In Munich")}<span class="chip">${esc(profile.kind || "kind unknown")}</span>
+      ${profile.ai_focus ? `<span class="chip accent">AI focus</span>` : ""}</div>
+    ${profile.reasons?.length ? `<ul class="reasons">${profile.reasons.map((r) => `<li>${esc(r)}</li>`).join("")}</ul>` : ""}
+  </section>`;
+}
+function renderIntake(intake) {
+  $("drawer-title").textContent = intakeTitle(intake);
+  const marks = stepMarks(intake);
+  const symbol = { done: "✓", stopped: "?", failed: "!" };
+  const steps = INTAKE_STEPS.map(([, label], i) =>
+    `<li class="${marks[i]}"><span class="mark" aria-hidden="true">${symbol[marks[i]] || ""}</span><span>${esc(label)}</span></li>`).join("");
+  const review = intake.state === "review";
+  const decide = review || intake.state === "rejected"
+    ? `<section><h3>${review ? "Your decision" : "Not added"}</h3>
+        <p class="note">${review
+          ? "The check could not confirm this organisation. Add it if you know it is real and runs events in Munich."
+          : "If the check got it wrong, you can still add it."}</p>
+        <div class="row-actions"><button type="button" class="btn primary" data-decide="approve">Add anyway</button>
+          ${review ? `<button type="button" class="btn" data-decide="reject">Reject</button>` : ""}</div>
+        <p class="form-error" id="decide-error" role="alert" hidden></p></section>`
+    : "";
+  const r = intake.result;
+  const result = r ? `<section><h3>Result</h3>
+      <div class="row-actions"><span class="chip ${r.status === "active" ? "ok" : "warn"}">${esc(r.status)}</span>
+        ${TIERS.map((t) => `<span class="tier-count"><span class="tier-badge ${t}">${t}</span>${r[t] ?? 0}</span>`).join("")}</div>
+      <div class="row-actions">
+        <button type="button" class="btn primary" data-open-org="${r.organiser_id}">Show the organisation</button>
+        ${r.upcoming ? `<button type="button" class="btn" data-show-org="${r.organiser_id}">Show its events</button>` : ""}
+      </div></section>` : "";
+  const log = intake.log.length
+    ? `<ol class="log">${intake.log.map((entry) => `<li><time>${esc(munich(entry.at)?.time || "")}</time>
+        <span class="${esc(entry.level)}">${esc(entry.text)}</span></li>`).join("")}</ol>`
+    : `<p class="note">Waiting to start.</p>`;
+  $("drawer-body").innerHTML = `
+    <p class="note"><a href="${esc(intake.url)}" target="_blank" rel="noopener">${esc(intake.url)}</a></p>
+    <section><ol class="steps">${steps}</ol></section>
+    ${decide}${result}${profileCard(intake.profile)}
+    <section><h3>What happened</h3>${log}</section>`;
+  for (const button of document.querySelectorAll("[data-decide]")) {
+    button.addEventListener("click", () => decideIntake(intake, button.dataset.decide === "approve"));
+  }
+}
+async function openIntake(id, opener) {
+  stopIntakePoll();
+  state.drawerMode = "intake";
+  state.openKey = null;
+  state.openIntakeId = id;
+  history.replaceState(null, "", `#intake-${id}`);
+  const known = state.intakes.find((i) => i.id === id);
+  showDrawer(known ? intakeTitle(known) : "Adding an organisation", opener);
+  if (known) renderIntake(known);
+  else $("drawer-body").innerHTML = skeleton(4);
+  $("drawer-close").focus();
+  await refreshIntake(id);
+}
+async function refreshIntake(id) {
+  if (state.openIntakeId !== id) return;
+  let intake;
+  try {
+    intake = await getJSON(`/api/intakes/${id}`);
+  } catch (error) {
+    $("drawer-body").innerHTML = `<p class="note warn">${esc(error.message)}</p>`;
+    return;
+  }
+  if (state.openIntakeId !== id) return;
+  const before = state.intakes.find((i) => i.id === id)?.state;
+  upsertIntake(intake);
+  renderIntake(intake);
+  renderIntakes();
+  if (intake.state === "done" && before !== "done") loadAll().catch(showBanner);
+  if (!INTAKE_FINAL.has(intake.state) && intake.state !== "review") {
+    state.intakeTimer = setTimeout(() => refreshIntake(id), INTAKE_POLL_MS);
+  }
+}
+async function decideIntake(intake, approve) {
+  try {
+    upsertIntake(await getJSON(`/api/intakes/${intake.id}/decision`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ approve }),
+    }));
+    stopIntakePoll();
+    await refreshIntake(intake.id);
+  } catch (error) {
+    const note = $("decide-error");
+    note.textContent = error.message;
+    note.hidden = false;
+  }
+}
+function showOrganisation(id) {
+  closeDrawer();
+  state.orgFilters = { ...state.orgFilters, q: "", kind: "" };
+  syncFilterInputs();
+  location.hash = "#organisations";
+  updateOrgFilters();
+  const node = document.querySelector(`.org[data-id="${id}"]`);
+  if (node) {
+    node.open = true;
+    node.scrollIntoView({ block: "start", behavior: "smooth" });
+    node.querySelector("summary").focus({ preventScroll: true });
+  }
+}
+
 /* Views, filters and wiring */
 function renderAll() {
   const select = $("org-filter");
@@ -538,7 +796,8 @@ function renderAll() {
   select.value = state.orgById.has(Number(state.filters.org)) ? state.filters.org : "";
   renderTimeline();
   renderOrganisations();
-  if (state.openKey) {
+  renderIntakes();
+  if (state.drawerMode === "event" && state.openKey) {
     const ev = state.events.find((e) => e.key === state.openKey);
     if (ev) renderDrawer(ev);
     else closeDrawer();
@@ -562,6 +821,15 @@ function showView() {
   const linked = location.hash.match(/^#event-([\w-]+)$/);
   if (linked) {
     if (state.events.length) openDrawer(linked[1]);
+    return;
+  }
+  const intake = location.hash.match(/^#intake-(\d+)$/);
+  if (intake) {
+    if (state.openIntakeId !== Number(intake[1])) openIntake(Number(intake[1]));
+    return;
+  }
+  if (location.hash === "#add-organisation") {
+    if (state.drawerMode !== "form") openAddForm();
     return;
   }
   const view = location.hash === "#organisations" ? "organisations" : "timeline";
@@ -600,6 +868,10 @@ function wire() {
   document.addEventListener("click", (e) => {
     const row = e.target.closest(".event[data-key]");
     if (row) return openDrawer(row.dataset.key, row);
+    const intakeRow = e.target.closest("[data-intake]");
+    if (intakeRow) return openIntake(Number(intakeRow.dataset.intake), intakeRow);
+    const org = e.target.closest("[data-open-org]");
+    if (org) return showOrganisation(Number(org.dataset.openOrg));
     const show = e.target.closest("[data-show-org]");
     if (show) {
       state.filters = { ...state.filters, org: show.dataset.showOrg, tiers: [...TIERS] };
@@ -608,6 +880,7 @@ function wire() {
       location.hash = "#timeline";
     }
   });
+  $("add-org").addEventListener("click", (e) => openAddForm(e.currentTarget));
   $("drawer-close").addEventListener("click", closeDrawer);
   $("scrim").addEventListener("click", closeDrawer);
   document.addEventListener("keydown", (e) => {

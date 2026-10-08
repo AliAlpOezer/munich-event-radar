@@ -13,8 +13,9 @@ def ingest(
     body: bytes,
     kind: Kind,
     source_class: SourceClass,
+    base: str | None = None,
 ) -> ParseResult:
-    result = parse(url, content_type, body, kind)
+    result = parse(base or url, content_type, body, kind)
     store.add_observations(content_hash, url, source_class, result.method, result.events)
     if result.needs_llm:
         store.enqueue_extraction(content_hash, url, LLM_PRIORITY[kind])

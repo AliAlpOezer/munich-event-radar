@@ -119,6 +119,22 @@ CREATE TABLE IF NOT EXISTS extraction_job (
     state TEXT NOT NULL DEFAULT 'pending' CHECK (state IN ('pending', 'done', 'needs_look')),
     PRIMARY KEY (snapshot_hash, url)
 );
+CREATE TABLE IF NOT EXISTS intake (
+    id INTEGER PRIMARY KEY,
+    url TEXT NOT NULL,
+    events_url TEXT,
+    name TEXT,
+    state TEXT NOT NULL DEFAULT 'queued' CHECK (state IN ('queued', 'checking', 'profiling',
+        'review', 'finding', 'harvesting', 'done', 'rejected', 'failed')),
+    approved INTEGER NOT NULL DEFAULT 0,
+    profile TEXT,
+    log TEXT NOT NULL DEFAULT '[]',
+    result TEXT,
+    organiser_id INTEGER REFERENCES organiser(id),
+    error TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS run (
     id INTEGER PRIMARY KEY,
     started_at TEXT NOT NULL,
@@ -219,12 +235,15 @@ class Store:
                 (snapshot_hash, url, priority),
             )
 
-    def pending_extractions(self, limit: int) -> list[sqlite3.Row]:
+    def pending_extractions(self, limit: int, urls: list[str] | None = None) -> list[sqlite3.Row]:
+        only = ""
+        if urls is not None:
+            only = f" AND url IN ({','.join('?' for _ in urls)})" if urls else " AND 0"
         with self.tx() as db:
             return db.execute(
-                "SELECT * FROM extraction_job WHERE state = 'pending'"
+                f"SELECT * FROM extraction_job WHERE state = 'pending'{only}"
                 " ORDER BY priority, attempts LIMIT ?",
-                (limit,),
+                (*(urls or ()), limit),
             ).fetchall()
 
     def finish_extraction(self, snapshot_hash: str, url: str, state: str) -> None:
@@ -337,6 +356,27 @@ class Store:
                     via,
                 ),
             )
+
+    def organiser_by_domain(self, domain: str) -> sqlite3.Row | None:
+        with self.tx() as db:
+            return db.execute(
+                "SELECT * FROM organiser WHERE domain = ? ORDER BY status = 'removed' DESC",
+                (domain,),
+            ).fetchone()
+
+    def set_organiser_status(self, organiser_id: int, status: str) -> None:
+        with self.tx() as db:
+            db.execute("UPDATE organiser SET status = ? WHERE id = ?", (status, organiser_id))
+
+    def source(self, url: str) -> sqlite3.Row | None:
+        with self.tx() as db:
+            return db.execute("SELECT * FROM source WHERE url = ?", (url,)).fetchone()
+
+    def organiser_sources(self, organiser_id: int) -> list[sqlite3.Row]:
+        with self.tx() as db:
+            return db.execute(
+                "SELECT * FROM source WHERE organiser_id = ? ORDER BY id", (organiser_id,)
+            ).fetchall()
 
     def focused_urls(self) -> set[str]:
         with self.tx() as db:
@@ -472,6 +512,54 @@ class Store:
                 (event_key, status.value, now_iso()),
             )
         return status
+
+    def create_intake(self, url: str, events_url: str | None, name: str | None) -> int:
+        stamp = now_iso()
+        with self.tx() as db:
+            return db.execute(
+                "INSERT INTO intake (url, events_url, name, created_at, updated_at)"
+                " VALUES (?, ?, ?, ?, ?)",
+                (url, events_url, name, stamp, stamp),
+            ).lastrowid
+
+    def intake(self, intake_id: int) -> sqlite3.Row | None:
+        with self.tx() as db:
+            return db.execute("SELECT * FROM intake WHERE id = ?", (intake_id,)).fetchone()
+
+    def intakes(self, limit: int) -> list[sqlite3.Row]:
+        with self.tx() as db:
+            return db.execute("SELECT * FROM intake ORDER BY id DESC LIMIT ?", (limit,)).fetchall()
+
+    def update_intake(self, intake_id: int, **cols) -> None:
+        cols = {**cols, "updated_at": now_iso()}
+        for name in ("profile", "result"):
+            if name in cols and not isinstance(cols[name], str | None):
+                cols[name] = json.dumps(cols[name], ensure_ascii=False)
+        assignments = ", ".join(f"{name} = ?" for name in cols)
+        with self.tx() as db:
+            db.execute(f"UPDATE intake SET {assignments} WHERE id = ?", (*cols.values(), intake_id))
+
+    def log_intake(self, intake_id: int, step: str, text: str, level: str = "info") -> None:
+        entry = {"at": now_iso(), "step": step, "text": text, "level": level}
+        with self.tx() as db:
+            db.execute(
+                "UPDATE intake SET log = json_insert(log, '$[#]', json(?)), updated_at = ?"
+                " WHERE id = ?",
+                (json.dumps(entry, ensure_ascii=False), entry["at"], intake_id),
+            )
+
+    def next_intake(self) -> sqlite3.Row | None:
+        with self.tx() as db:
+            return db.execute(
+                "SELECT * FROM intake WHERE state = 'queued' ORDER BY id LIMIT 1"
+            ).fetchone()
+
+    def requeue_interrupted_intakes(self) -> int:
+        with self.tx() as db:
+            return db.execute(
+                "UPDATE intake SET state = 'queued' WHERE state IN"
+                " ('checking', 'profiling', 'finding', 'harvesting')"
+            ).rowcount
 
     def start_run(self) -> int:
         with self.tx() as db:

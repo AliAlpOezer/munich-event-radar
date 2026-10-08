@@ -37,25 +37,25 @@ class AllModelsFailed(Exception):
     pass
 
 
-def _body(model: Model, messages: list[dict], schema: dict) -> dict:
+def _body(model: Model, messages: list[dict], schema: dict, name: str) -> dict:
     body = {"model": model.id, "messages": messages, "temperature": 0, "max_tokens": 6000}
     if model.mode == "schema":
         body["response_format"] = {
             "type": "json_schema",
-            "json_schema": {"name": "events", "strict": True, "schema": schema},
+            "json_schema": {"name": name, "strict": True, "schema": schema},
         }
     elif model.mode == "tool":
         body["tools"] = [
             {
                 "type": "function",
                 "function": {
-                    "name": "record_events",
-                    "description": "Record the events",
+                    "name": f"record_{name}",
+                    "description": f"Record the {name}",
                     "parameters": schema,
                 },
             }
         ]
-        body["tool_choice"] = {"type": "function", "function": {"name": "record_events"}}
+        body["tool_choice"] = {"type": "function", "function": {"name": f"record_{name}"}}
     else:
         body["response_format"] = {"type": "json_object"}
     return body
@@ -93,13 +93,15 @@ class Router:
             and (not m.until or today <= m.until)
         ]
 
-    def complete(self, messages: list[dict], schema: dict) -> tuple[str, dict]:
+    def complete(
+        self, messages: list[dict], schema: dict, name: str = "events"
+    ) -> tuple[str, dict]:
         failures = []
         for model in self._chain():
             if not self.store.spend("openrouter", self.daily_cap):
                 raise BudgetExhausted
             response = self.client.post(
-                f"{API}/chat/completions", json=_body(model, messages, schema)
+                f"{API}/chat/completions", json=_body(model, messages, schema, name)
             )
             detail = response.text[:400]
             if response.status_code == 429 and "upstream" not in detail.lower():
