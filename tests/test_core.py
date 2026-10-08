@@ -10,6 +10,7 @@ from event_radar.extract.verify import verify
 from event_radar.judge import Judge
 from event_radar.model import Evidence, Kind, Observation, SourceClass
 from event_radar.parse import parse
+from event_radar.parse.html import image_url
 from event_radar.platforms import platform_key
 from event_radar.resolve import local_minute, resolve
 from event_radar.store import Store
@@ -67,6 +68,40 @@ def test_cms_page_without_registration_goes_to_llm():
     url = "https://badw.de/en/events/view/a-cryptographic-perspective-on-machine-learning-trustworthiness-challenges"
     content_type, body = fixture(url)
     assert parse(url, content_type, body, Kind.EVENT_PAGE).needs_llm
+
+
+def test_event_pages_keep_a_cover_image():
+    content_type, body = fixture("https://luma.com/4k19ckbb")
+    luma = parse("https://luma.com/4k19ckbb", content_type, body, Kind.EVENT_PAGE)
+    assert luma.events[0].fields["image"].value.startswith("https://images.lumacdn.com/")
+    url = "https://badw.de/en/events/view/a-cryptographic-perspective-on-machine-learning-trustworthiness-challenges"
+    content_type, body = fixture(url)
+    badw = parse(url, content_type, body, Kind.EVENT_PAGE)
+    assert badw.events[0].fields["image"].value.startswith("https://badw.de/fileadmin/")
+
+
+def test_listing_pages_do_not_lend_their_share_image_to_events():
+    body = b"""<meta property="og:image" content="https://example.org/site.png">
+    <script type="application/ld+json">[{"@type": "Event", "name": "A", "startDate": "2026-11-02"},
+    {"@type": "Event", "name": "B", "startDate": "2026-11-03", "image": ["/b.jpg"]}]</script>"""
+    result = parse("https://example.org/events/", "text/html", body, Kind.LISTING)
+    assert [e.fields.get("image") for e in result.events] == [
+        None,
+        Evidence("https://example.org/b.jpg"),
+    ]
+
+
+@pytest.mark.parametrize(
+    "value, image",
+    [
+        ({"@type": "ImageObject", "url": "/a.png"}, "https://example.org/a.png"),
+        ("http://example.org/a.png", None),
+        ("javascript:alert(1)", None),
+        ([], None),
+    ],
+)
+def test_image_urls_are_https_only(value, image):
+    assert image_url(value, "https://example.org/events/") == image
 
 
 def test_verifier_rejects_ungrounded_and_flags_missing_year():

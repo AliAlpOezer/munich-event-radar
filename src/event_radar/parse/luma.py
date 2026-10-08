@@ -3,6 +3,7 @@ import json
 from selectolax.lexbor import LexborHTMLParser
 
 from ..model import Evidence, ParsedEvent
+from .html import image_url
 
 
 def _availability(data: dict, ticket: dict, event: dict) -> str:
@@ -54,6 +55,7 @@ def events(tree: LexborHTMLParser) -> list[ParsedEvent]:
         "attendance": {"offline": "in_person", "online": "online"}.get(event.get("location_type")),
         "organiser": ", ".join(h["name"] for h in data.get("hosts") or [] if h.get("name")) or None,
         "event_url": f"https://luma.com/{event['url']}" if event.get("url") else None,
+        "image": image_url(event.get("cover_url"), "https://luma.com/"),
         "reg_mode": "approval" if ticket.get("require_approval") else "open_signup",
         "reg_url": f"https://luma.com/{event['url']}" if event.get("url") else None,
         "reg_availability": _availability(data, ticket, event),

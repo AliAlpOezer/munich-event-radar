@@ -45,6 +45,7 @@ EVENT_FIELDS = (
     "organiser",
     "description",
     "event_url",
+    "image",
     "reg_mode",
     "reg_url",
     "reg_opens_at",

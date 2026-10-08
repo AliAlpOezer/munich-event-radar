@@ -36,7 +36,9 @@ def _detail_links(page_url: str, links: list[str]) -> list[str]:
     ]
 
 
-def _single(page_url: str, event: ParsedEvent, ticket_links: list[str]) -> ParsedEvent:
+def _single(
+    page_url: str, event: ParsedEvent, ticket_links: list[str], image: str | None
+) -> ParsedEvent:
     keys = set(event.platform_keys)
     if own := platform_key(page_url):
         keys.add(own)
@@ -48,6 +50,8 @@ def _single(page_url: str, event: ParsedEvent, ticket_links: list[str]) -> Parse
         if len(linked) == 1:
             keys |= linked
     fields.setdefault("event_url", Evidence(page_url))
+    if image:
+        fields.setdefault("image", Evidence(image))
     return replace(
         event, platform_keys=tuple(sorted(keys)), links=tuple(ticket_links), fields=fields
     )
@@ -62,10 +66,10 @@ def parse(url: str, content_type: str | None, body: bytes, kind: Kind) -> ParseR
             "rss@1", follow=tuple(dict.fromkeys(_RSS_LINK.findall(body.decode(errors="replace"))))
         )
     tree = LexborHTMLParser(body)
-    found, method = luma.events(tree), "luma@1"
-    structured = jsonld.events(tree)
+    found, method = luma.events(tree), "luma@2"
+    structured = jsonld.events(tree, url)
     if not found:
-        found, method = structured, "jsonld@1"
+        found, method = structured, "jsonld@2"
     elif len(found) == 1 and len(structured) == 1:
         found = [replace(found[0], fields={**structured[0].fields, **found[0].fields})]
     page_links = html.links(tree, url)
@@ -76,7 +80,7 @@ def parse(url: str, content_type: str | None, body: bytes, kind: Kind) -> ParseR
         return ParseResult(method, tuple(found), follow=tuple(follow))
     if len(found) != 1:
         return ParseResult(method, tuple(found), follow=tuple(ticket_links), needs_llm=True)
-    event = _single(url, found[0], ticket_links)
+    event = _single(url, found[0], ticket_links, html.og_image(tree, url))
     lacks_registration = not any(f in event.fields for f in _REGISTRATION)
     return ParseResult(
         method,
