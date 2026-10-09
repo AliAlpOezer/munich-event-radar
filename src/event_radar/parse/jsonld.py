@@ -3,6 +3,7 @@ import json
 from selectolax.lexbor import LexborHTMLParser
 
 from ..model import Evidence, ParsedEvent
+from .html import image_url
 
 _AVAILABILITY = {
     "SoldOut": "sold_out",
@@ -66,7 +67,7 @@ def _offers(offers: object) -> dict[str, object]:
     return fields
 
 
-def events(tree: LexborHTMLParser) -> list[ParsedEvent]:
+def events(tree: LexborHTMLParser, base: str = "") -> list[ParsedEvent]:
     found = []
     for item in _items(tree):
         if not _is_event(item):
@@ -77,6 +78,7 @@ def events(tree: LexborHTMLParser) -> list[ParsedEvent]:
             "starts_at": item.get("startDate"),
             "ends_at": item.get("endDate"),
             "event_url": item.get("url"),
+            "image": image_url(item.get("image"), base),
             "attendance": _ATTENDANCE.get(_tail(item.get("eventAttendanceMode", ""))),
             "organiser": organiser.get("name") if isinstance(organiser, dict) else None,
             **_location(item.get("location")),

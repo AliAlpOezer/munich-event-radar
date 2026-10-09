@@ -1,7 +1,9 @@
 from dataclasses import replace
 from datetime import date
 
-from ..model import Evidence, ParsedEvent, SourceClass
+from selectolax.lexbor import LexborHTMLParser
+
+from ..model import Evidence, Kind, ParsedEvent, SourceClass
 from ..parse import html
 from ..platforms import is_ticket_host, platform_key
 from ..store import Store
@@ -35,8 +37,16 @@ class Extractor:
             self.rejected[url] = rejected
             if "title" in event.fields:
                 events.append(_with_keys(url, event))
+        source = store.source(url)
+        if len(events) == 1 and source and source["kind"] == Kind.EVENT_PAGE:
+            events[0] = _with_image(events[0], body, url)
         method = f"llm:{cached['model']}@{VERSION}"
         return store.add_observations(digest, url, source_class, method, events)
+
+
+def _with_image(event: ParsedEvent, body: bytes, url: str) -> ParsedEvent:
+    image = html.og_image(LexborHTMLParser(body), url)
+    return replace(event, fields={**event.fields, "image": Evidence(image)}) if image else event
 
 
 def _with_keys(url: str, event: ParsedEvent) -> ParsedEvent:

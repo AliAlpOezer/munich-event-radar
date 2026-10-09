@@ -237,6 +237,18 @@ function tierBadge(ev) {
   const title = ev.tier ? `Tier ${ev.tier}. ${TIER_MEANING[ev.tier]}` : DROP_LABEL[ev.drop_reason] || "Not tiered";
   return `<span class="tier-badge ${tier}" title="${esc(title)}">${ev.tier || "-"}</span>`;
 }
+const TILES = 5;
+function tileOf(text) {
+  let hash = 0;
+  for (const c of text) hash = (hash * 31 + c.codePointAt(0)) >>> 0;
+  return hash % TILES;
+}
+function cover(ev) {
+  const title = val(ev, "title") || "";
+  const initial = [...(organiserNames(ev) || title || "?").trim()][0]?.toUpperCase() || "?";
+  const img = ev.cover ? `<img src="${esc(ev.cover)}" alt="" loading="lazy" decoding="async" referrerpolicy="no-referrer">` : "";
+  return `<span class="cover t${tileOf(title)}" aria-hidden="true">${esc(initial)}${img}</span>`;
+}
 function eventRow(ev, { withDate = false } = {}) {
   const start = startOf(ev);
   const ongoing = start && start.day < today() && !isPast(ev);
@@ -256,6 +268,7 @@ function eventRow(ev, { withDate = false } = {}) {
     <span class="main"><span class="title">${esc(val(ev, "title") || "Untitled event")}</span>
       ${meta ? `<span class="meta">${esc(meta)}</span>` : ""}</span>
     <span class="tags">${tags.join("")}</span>
+    ${cover(ev)}
   </button></li>`;
 }
 const skeleton = (rows) => `<div class="skeleton">${"<div></div>".repeat(rows)}</div>`;
@@ -285,6 +298,12 @@ function sortTime(ev) {
   const start = startOf(ev);
   if (!start || !start.time) return "";
   return start.day < today() && !isPast(ev) ? "" : start.time;
+}
+function renderHero() {
+  const upcoming = state.events.filter(isUpcoming);
+  const count = (tier) => upcoming.filter((ev) => ev.tier === tier).length;
+  const orgs = state.organisers.length;
+  $("hero-sub").innerHTML = `<b>${count("A")}</b> not to miss and <b>${count("B")}</b> worth a look, from ${orgs} ${orgs === 1 ? "organisation" : "organisations"}.`;
 }
 function renderTimeline() {
   const upcoming = state.events.filter(isUpcoming);
@@ -490,6 +509,7 @@ function renderDrawer(ev) {
   $("drawer-tier").textContent = ev.tier || "-";
   $("drawer-title").textContent = val(ev, "title") || "Untitled event";
   $("drawer-body").innerHTML = `
+    ${ev.cover ? `<figure class="drawer-cover"><img src="${esc(ev.cover)}" alt="" referrerpolicy="no-referrer"></figure>` : ""}
     ${notes.map((n) => `<p class="note warn">${esc(n)}</p>`).join("")}
     <section>${dl(facts)}</section>
     <section><h3>Registration</h3>
@@ -794,6 +814,7 @@ function renderAll() {
   select.innerHTML = `<option value="">All organisers</option>` +
     named.map((o) => `<option value="${o.id}">${esc(o.name)}</option>`).join("");
   select.value = state.orgById.has(Number(state.filters.org)) ? state.filters.org : "";
+  renderHero();
   renderTimeline();
   renderOrganisations();
   renderIntakes();
@@ -881,6 +902,28 @@ function wire() {
     }
   });
   $("add-org").addEventListener("click", (e) => openAddForm(e.currentTarget));
+  const themeToggle = $("theme-toggle");
+  const labelTheme = () => {
+    const next = document.documentElement.dataset.theme === "dark" ? "light" : "dark";
+    themeToggle.setAttribute("aria-label", `Switch to ${next} theme`);
+  };
+  labelTheme();
+  themeToggle.addEventListener("click", () => {
+    const dark = document.documentElement.dataset.theme !== "dark";
+    if (dark) document.documentElement.dataset.theme = "dark";
+    else delete document.documentElement.dataset.theme;
+    labelTheme();
+    try {
+      localStorage.setItem("radar.theme", dark ? "dark" : "light");
+    } catch {
+      /* storage blocked: the theme resets to light on reload */
+    }
+  });
+  /* A cover that fails to load leaves the colour tile behind it, or no cover in the drawer. */
+  document.addEventListener("error", (e) => {
+    if (e.target.matches?.(".cover img")) e.target.remove();
+    else if (e.target.matches?.(".drawer-cover img")) e.target.parentElement.remove();
+  }, true);
   $("drawer-close").addEventListener("click", closeDrawer);
   $("scrim").addEventListener("click", closeDrawer);
   document.addEventListener("keydown", (e) => {

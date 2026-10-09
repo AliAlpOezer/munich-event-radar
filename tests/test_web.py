@@ -52,4 +52,18 @@ def test_user_status_follows_the_allowed_transitions(client):
 
 def test_page_and_assets_are_served(client):
     assert "Event Radar" in client.get("/").text
-    assert client.get("/static/app.js").status_code == 200
+    script = client.get("/static/app.js")
+    assert script.status_code == 200 and script.headers["cache-control"] == "no-cache"
+    again = client.get("/static/app.js", headers={"If-None-Match": script.headers["etag"]})
+    assert again.status_code == 304
+
+
+def test_a_share_image_on_many_events_is_not_a_cover(tmp_path):
+    store = Store(tmp_path / "radar.db")
+    tier_c = SimpleNamespace(tier="C", reasons=(), drop_reason=None)
+    images = ["https://a.org/own.png"] + ["https://b.org/site.png"] * 3
+    fields = [{"title": {"value": f"E{i}"}, "image": {"value": u}} for i, u in enumerate(images)]
+    store.save_events([({f"url:{i}"}, f, "url", tier_c, []) for i, f in enumerate(fields)])
+    events = TestClient(create_app(store)).get("/api/events").json()["events"]
+    covers = {e["fields"]["title"]["value"]: e["cover"] for e in events}
+    assert covers == {"E0": "https://a.org/own.png", "E1": None, "E2": None, "E3": None}

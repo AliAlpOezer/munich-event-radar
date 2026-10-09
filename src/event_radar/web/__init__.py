@@ -1,7 +1,8 @@
 import json
+from collections import Counter
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
@@ -13,6 +14,8 @@ from ..store import Store
 STATIC = Path(__file__).parent / "static"
 RUN_HISTORY = 12
 INTAKE_HISTORY = 20
+# An image on this many events is a site's default share image, not an event cover.
+SHARED_IMAGE = 3
 
 
 class StatusChange(BaseModel):
@@ -39,6 +42,10 @@ def _run(row) -> dict:
     }
 
 
+def _image(event) -> str | None:
+    return (json.loads(event["fields"]).get("image") or {}).get("value")
+
+
 def create_app(store: Store, intake: IntakeService | None = None) -> FastAPI:
     app = FastAPI(title="Event radar", docs_url=None, redoc_url=None)
 
@@ -52,7 +59,10 @@ def create_app(store: Store, intake: IntakeService | None = None) -> FastAPI:
         runs = store.runs(RUN_HISTORY)
         last_ok = next((r for r in runs if r["outcome"] == "ok"), None)
         rows = []
-        for e in store.events():
+        events = store.events()
+        images = Counter(_image(e) for e in events)
+        for e in events:
+            image = _image(e)
             sources = [
                 {
                     "url": url,
@@ -73,6 +83,7 @@ def create_app(store: Store, intake: IntakeService | None = None) -> FastAPI:
                     "updated_at": e["updated_at"],
                     "stale": bool(last_ok and e["updated_at"] < last_ok["started_at"]),
                     "fields": json.loads(e["fields"]),
+                    "cover": image if images[image] < SHARED_IMAGE else None,
                     "sources": sources,
                     "organiser_ids": sorted(
                         {s["organiser_id"] for s in sources if s["organiser_id"] is not None}
@@ -171,6 +182,15 @@ def create_app(store: Store, intake: IntakeService | None = None) -> FastAPI:
     @app.get("/")
     def index() -> FileResponse:
         return FileResponse(STATIC / "index.html")
+
+    # Asset URLs carry no version, so browsers must revalidate (cheap 304s via ETag);
+    # otherwise a cached old app.js can run against a newer page after a deploy.
+    @app.middleware("http")
+    async def revalidate(request: Request, call_next):
+        response = await call_next(request)
+        if request.url.path == "/" or request.url.path.startswith("/static/"):
+            response.headers["Cache-Control"] = "no-cache"
+        return response
 
     app.mount("/static", StaticFiles(directory=STATIC), name="static")
     return app
