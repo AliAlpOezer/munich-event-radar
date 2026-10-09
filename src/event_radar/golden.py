@@ -47,13 +47,12 @@ def _under(url: str, domains: tuple[str, ...]) -> bool:
     return (parts.netloc.removeprefix("www.") + parts.path).startswith(domains)
 
 
-def replay(repo: Path, extract=None) -> dict:
+def replay(repo: Path, dsn: str | None, extract=None) -> dict:
     golden = load(repo)
     now = datetime.fromisoformat(golden["now"])
     profile = yaml.safe_load((repo / "profile.yaml").read_text(encoding="utf-8"))
     judge = Judge(profile)
-    with tempfile.TemporaryDirectory() as tmp:
-        store = Store(Path(tmp) / "replay.db")
+    with tempfile.TemporaryDirectory() as tmp, Store.scratch(dsn) as store:
         snapshots = SnapshotStore(Path(tmp) / "snapshots")
         for url, content_type, body in _fixture_pages(repo):
             digest = snapshots.put(body)

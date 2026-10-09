@@ -14,7 +14,7 @@ def main() -> None:
     parser.add_argument("--port", type=int, default=8010)
     args = parser.parse_args()
     settings = config.load()
-    store = Store(settings.db_path)
+    store = Store(settings.database_url)
     intake = IntakeService(settings, store)
     intake.start()
     app = create_app(store, intake)

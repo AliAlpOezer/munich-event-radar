@@ -47,7 +47,7 @@ def _follow_kind(url: str) -> Kind:
 
 
 def seed(settings: config.Settings) -> int:
-    store = Store(settings.db_path)
+    store = Store(settings.database_url)
     profile = _profile(settings)
     rows = yaml.safe_load((settings.repo_dir / "seed" / "organisers.yaml").read_text("utf-8"))
     for row in rows:
@@ -167,7 +167,7 @@ def browse(settings: config.Settings) -> dict:
     """ADR 0002 D11, ADR 0003 D3: render the due JavaScript-only sources."""
     from .render import Renderer
 
-    store = Store(settings.db_path)
+    store = Store(settings.database_url)
     snapshots = SnapshotStore(settings.snapshot_dir)
     profile = _profile(settings)
     counts: Counter = Counter()
@@ -182,7 +182,7 @@ def browse(settings: config.Settings) -> dict:
 
 
 def run(settings: config.Settings) -> dict:
-    store = Store(settings.db_path)
+    store = Store(settings.database_url)
     snapshots = SnapshotStore(settings.snapshot_dir)
     profile = _profile(settings)
     judge = Judge(profile)

@@ -2,7 +2,7 @@ import argparse
 import json
 from pathlib import Path
 
-from . import config, golden, runner
+from . import config, golden, runner, sqlite_import
 from .fetch import Fetcher
 from .resolve import local_minute
 from .snapshots import SnapshotStore
@@ -10,7 +10,7 @@ from .store import Store
 
 
 def _freeze(settings: config.Settings) -> None:
-    store = Store(settings.db_path)
+    store = Store(settings.database_url)
     snapshots = SnapshotStore(settings.snapshot_dir)
     fetcher = Fetcher(store, snapshots, config.user_agent())
     manifest = golden.freeze(settings.repo_dir, fetcher, snapshots)
@@ -23,9 +23,9 @@ def _replay(settings: config.Settings) -> None:
         from .extract import Extractor
         from .extract.router import Router
 
-        cache = Store(settings.db_path)
+        cache = Store(settings.database_url)
         extractor = Extractor(Router(settings.openrouter_key, cache, settings.llm_daily_cap), cache)
-    report = golden.replay(Path(settings.repo_dir), extractor)
+    report = golden.replay(Path(settings.repo_dir), settings.database_url, extractor)
     print(json.dumps(report, indent=1, ensure_ascii=False))
     raise SystemExit(0 if report["pass"] else 1)
 
@@ -36,10 +36,10 @@ def _value(fields: dict, name: str) -> object:
 
 def _board(settings: config.Settings) -> None:
     rows = []
-    for event in Store(settings.db_path).events():
+    for event in Store(settings.database_url).events():
         if event["tier"] not in {"A", "B"}:
             continue
-        fields = json.loads(event["fields"])
+        fields = event["fields"]
         rows.append(
             (
                 local_minute(_value(fields, "starts_at")) or "?",
@@ -67,9 +67,16 @@ COMMANDS = {
 
 def main() -> None:
     parser = argparse.ArgumentParser(prog="event-radar")
-    parser.add_argument("command", choices=sorted(COMMANDS))
+    parser.add_argument("command", choices=sorted([*COMMANDS, "import-sqlite"]))
+    parser.add_argument("path", nargs="?", type=Path, help="import-sqlite: the SQLite file")
     args = parser.parse_args()
-    COMMANDS[args.command](config.load())
+    settings = config.load()
+    if args.command == "import-sqlite":
+        if not args.path:
+            parser.error("import-sqlite needs the path of the SQLite file")
+        print(json.dumps(sqlite_import.run(Store(settings.database_url), args.path)))
+        return
+    COMMANDS[args.command](settings)
 
 
 if __name__ == "__main__":

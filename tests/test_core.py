@@ -1,10 +1,12 @@
 import json
+import sqlite3
 from datetime import datetime
 from pathlib import Path
 
 import httpx
 import pytest
 
+from conftest import TEST_DSN
 from event_radar.extract.router import BudgetExhausted, DailyCapReached, Model, Router
 from event_radar.extract.verify import verify
 from event_radar.judge import Judge
@@ -214,23 +216,15 @@ def test_fuzzy_merge_needs_two_stems_and_compatible_start_times():
     assert len(resolve(sessions)) == 2
 
 
-def test_seed_reimport_applies_ai_focus_and_migrates_old_databases(tmp_path):
-    import sqlite3
-
-    path = tmp_path / "old.db"
-    with sqlite3.connect(path) as db:
-        db.execute(
-            "CREATE TABLE organiser (id INTEGER PRIMARY KEY, name TEXT NOT NULL, domain TEXT"
-            " NOT NULL, homepage TEXT, kind TEXT, status TEXT NOT NULL DEFAULT 'active',"
-            " discovered_via TEXT NOT NULL, discovered_at TEXT NOT NULL, discovery_url TEXT,"
-            " UNIQUE (domain, name))"
-        )
-    store = Store(path)
+def test_seed_reimport_applies_ai_focus_and_migrations_run_once(store):
     org = store.add_organiser("Munich NLP", "luma.com/munichnlp", "seed")
     store.add_source("https://luma.com/munichnlp", "listing", "TICKET", 24, "seed", org)
     assert store.focused_urls() == set()
     assert store.add_organiser("Munich NLP", "luma.com/munichnlp", "seed", ai_focus=True) == org
     assert store.focused_urls() == {"https://luma.com/munichnlp"}
+    again = Store(TEST_DSN, store.schema)
+    assert again.focused_urls() == {"https://luma.com/munichnlp"}
+    again.close()
 
 
 JUDGE = Judge.from_file(REPO / "profile.yaml")
@@ -279,9 +273,9 @@ def test_application_is_a_registration_mode_not_a_programme():
     assert JUDGE.kind({"title": {"value": "AI Fellowship 2027"}}) == "programme"
 
 
-def _router(tmp_path, handler, cap=5):
+def _router(store, handler, cap=5):
     client = httpx.Client(transport=httpx.MockTransport(handler))
-    router = Router("k", Store(tmp_path / "r.db"), cap, client)
+    router = Router("k", store, cap, client)
     router._live = {m.id for m in (Model("nvidia/nemotron-3-super-120b-a12b:free", "schema"),)}
     return router
 
@@ -290,18 +284,16 @@ def _ok(content):
     return httpx.Response(200, json={"choices": [{"message": {"content": json.dumps(content)}}]})
 
 
-def test_router_skips_upstream_429_and_stops_on_account_cap(tmp_path):
+def test_router_skips_upstream_429_and_stops_on_account_cap(store):
     replies = iter([httpx.Response(429, text="rate-limited upstream"), _ok({"events": []})])
-    model, result = _router(tmp_path, lambda r: next(replies)).complete([], {})
+    model, result = _router(store, lambda r: next(replies)).complete([], {})
     assert model == "openrouter/free" and result == {"events": []}
     with pytest.raises(DailyCapReached):
-        _router(tmp_path, lambda r: httpx.Response(429, text="free-models-per-day")).complete(
-            [], {}
-        )
+        _router(store, lambda r: httpx.Response(429, text="free-models-per-day")).complete([], {})
 
 
-def test_budget_is_a_ceiling(tmp_path):
-    router = _router(tmp_path, lambda r: httpx.Response(503, text='{"error": "overloaded"}'), cap=1)
+def test_budget_is_a_ceiling(store):
+    router = _router(store, lambda r: httpx.Response(503, text='{"error": "overloaded"}'), cap=1)
     with pytest.raises(BudgetExhausted):
         router.complete([], {})
 
@@ -312,3 +304,39 @@ def test_board_times_are_munich_local():
     assert local_minute("2026-10-20T18:00:00+02:00") == "2026-10-20T18:00"
     assert local_minute("2026-11-30") == "2026-11-30"
     assert local_minute(None) is None
+
+
+def test_a_sqlite_database_moves_into_postgres_with_its_ids(store, tmp_path):
+    from event_radar import sqlite_import
+
+    path = tmp_path / "old.db"
+    with sqlite3.connect(path) as db:
+        db.executescript(
+            "CREATE TABLE organiser (id INTEGER PRIMARY KEY, name TEXT, domain TEXT, homepage TEXT,"
+            " kind TEXT, ai_focus INTEGER, status TEXT, discovered_via TEXT, discovered_at TEXT,"
+            " discovery_url TEXT);"
+            "INSERT INTO organiser VALUES (7, 'TUM.ai', 'tum-ai.com', NULL, 'club', 1, 'active',"
+            " 'seed', '2026-10-07T10:00:00+00:00', NULL);"
+            "CREATE TABLE event (key TEXT PRIMARY KEY, fields TEXT, merge_basis TEXT, tier TEXT,"
+            " tier_reasons TEXT, drop_reason TEXT, sources TEXT, first_seen TEXT,"
+            " updated_at TEXT);"
+            "INSERT INTO event VALUES ('k1', '{\"title\": {\"value\": \"Demo Day\"}}', 'url', 'A',"
+            " '[\"ai=core\"]', NULL, '[]', '2026-10-07T10:00:00+00:00',"
+            " '2026-10-08T10:00:00+00:00');"
+            "CREATE TABLE user_state (event_key TEXT, status TEXT, feedback INTEGER,"
+            " updated_at TEXT);"
+            "INSERT INTO user_state VALUES ('k1', 'registered', NULL, '2026-10-08T11:00:00+00:00');"
+        )
+        for table in sqlite_import.TABLES:
+            db.execute(f"CREATE TABLE IF NOT EXISTS {table} (unused INTEGER)")
+    db.close()
+
+    counts = sqlite_import.run(store, path)
+    assert counts["organiser"] == counts["event"] == counts["user_state"] == 1
+    [org] = store.organisers()
+    assert org["id"] == 7 and org["ai_focus"] is True
+    [event] = store.events()
+    assert event["fields"]["title"]["value"] == "Demo Day" and event["user_status"] == "registered"
+    assert store.add_organiser("CDTM", "cdtm.com", "manual") == 8
+    with pytest.raises(RuntimeError, match="already holds data"):
+        sqlite_import.run(store, path)

@@ -1,7 +1,6 @@
 """Organisation intake (ADR 0003): check, profile, find sources, harvest, admit."""
 
 import ipaddress
-import json
 import re
 import socket
 import threading
@@ -265,11 +264,11 @@ class IntakeService:
             raise ValueError(f"An intake in state {row['state']} cannot be decided")
         if approve:
             self.store.log_intake(intake_id, "review", "Approved by you.", "ok")
-            self.store.update_intake(intake_id, state="queued", approved=1)
+            self.store.update_intake(intake_id, state="queued", approved=True)
             self._wake.set()
         else:
             self.store.log_intake(intake_id, "review", "Rejected by you.", "warn")
-            self.store.update_intake(intake_id, state="rejected", approved=0)
+            self.store.update_intake(intake_id, state="rejected", approved=False)
 
     # Worker side
     def start(self) -> None:
@@ -358,7 +357,7 @@ class IntakeService:
         row = self.store.intake(intake_id)
         log = self.store.log_intake
         if row["approved"]:
-            return json.loads(row["profile"]) if row["profile"] else {}
+            return row["profile"] or {}
         self.store.update_intake(intake_id, state="profiling")
         router = self._router()
         if router is None:
@@ -579,7 +578,7 @@ class IntakeService:
     def _tally(self, urls: set[str]) -> dict:
         tally = Counter({"A": 0, "B": 0, "C": 0, "upcoming": 0, "past": 0, "dropped": 0})
         for event in self.store.events():
-            if not urls & set(json.loads(event["sources"])):
+            if not urls & set(event["sources"]):
                 continue
             if event["tier"]:
                 tally[event["tier"]] += 1
@@ -610,10 +609,10 @@ def as_json(row) -> dict:
         "events_url": row["events_url"],
         "name": row["name"],
         "state": row["state"],
-        "approved": bool(row["approved"]),
-        "profile": json.loads(row["profile"]) if row["profile"] else None,
-        "log": json.loads(row["log"]),
-        "result": json.loads(row["result"]) if row["result"] else None,
+        "approved": row["approved"],
+        "profile": row["profile"],
+        "log": row["log"],
+        "result": row["result"],
         "organiser_id": row["organiser_id"],
         "error": row["error"],
         "created_at": row["created_at"],

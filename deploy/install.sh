@@ -7,6 +7,11 @@ install -d -o eventradar -g eventradar -m 750 /var/lib/event-radar
 install -d -o root -g eventradar -m 750 /etc/event-radar
 [ -f /etc/event-radar/env ] || install -o root -g eventradar -m 640 /dev/null /etc/event-radar/env
 grep -q '^RADAR_DATA_DIR=' /etc/event-radar/env || echo 'RADAR_DATA_DIR=/var/lib/event-radar' >> /etc/event-radar/env
+# The store is Postgres on Supabase (ADR 0004): the session pooler URL, never the anon key.
+grep -q '^RADAR_DATABASE_URL=.' /etc/event-radar/env || {
+  echo "Add RADAR_DATABASE_URL to /etc/event-radar/env first (ADR 0004)." >&2
+  exit 1
+}
 # The web app listens on the Tailscale address only (ADR 0002).
 tailnet_ip="$(tailscale ip -4 | head -1)"
 sed -i '/^RADAR_WEB_HOST=/d' /etc/event-radar/env

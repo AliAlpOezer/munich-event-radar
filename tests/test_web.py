@@ -3,13 +3,11 @@ from types import SimpleNamespace
 import pytest
 from fastapi.testclient import TestClient
 
-from event_radar.store import Store
 from event_radar.web import create_app
 
 
 @pytest.fixture
-def client(tmp_path):
-    store = Store(tmp_path / "radar.db")
+def client(store):
     org = store.add_organiser("Munich NLP", "luma.com/munichnlp", "seed", ai_focus=True)
     store.add_source("https://luma.com/munichnlp", "listing", "TICKET", 24, "seed", org)
     run = store.start_run()
@@ -58,8 +56,7 @@ def test_page_and_assets_are_served(client):
     assert again.status_code == 304
 
 
-def test_a_share_image_on_many_events_is_not_a_cover(tmp_path):
-    store = Store(tmp_path / "radar.db")
+def test_a_share_image_on_many_events_is_not_a_cover(store):
     tier_c = SimpleNamespace(tier="C", reasons=(), drop_reason=None)
     images = ["https://a.org/own.png"] + ["https://b.org/site.png"] * 3
     fields = [{"title": {"value": f"E{i}"}, "image": {"value": u}} for i, u in enumerate(images)]

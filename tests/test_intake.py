@@ -9,7 +9,6 @@ from fastapi.testclient import TestClient
 from selectolax.lexbor import LexborHTMLParser
 
 from event_radar import config, intake, render
-from event_radar.store import Store
 from event_radar.web import create_app
 
 FIXTURES = Path(__file__).parent / "fixtures"
@@ -98,7 +97,7 @@ def _site(start: str) -> dict[str, str]:
 
 
 @pytest.fixture
-def service(tmp_path, monkeypatch):
+def service(tmp_path, monkeypatch, store):
     start = (datetime.now(UTC) + timedelta(days=30)).strftime("%Y-%m-%dT18:00:00+01:00")
     pages = _site(start)
 
@@ -115,8 +114,9 @@ def service(tmp_path, monkeypatch):
         lambda ua: httpx.Client(transport=httpx.MockTransport(handler), follow_redirects=True),
     )
     monkeypatch.setattr(render, "available", lambda: False)
-    settings = dataclasses.replace(config.load(), data_dir=tmp_path, openrouter_key=None)
-    store = Store(settings.db_path)
+    settings = dataclasses.replace(
+        config.load(), data_dir=tmp_path, database_url=None, openrouter_key=None
+    )
     svc = intake.IntakeService(settings, store)
     svc.min_interval_s = 0
     return svc
@@ -166,7 +166,7 @@ def test_decisions_only_apply_to_intakes_waiting_for_one(service):
     assert client.post("/api/intakes", json={"url": "nonsense"}).status_code == 422
 
 
-def test_without_the_service_adding_is_disabled(tmp_path):
-    client = TestClient(create_app(Store(tmp_path / "radar.db")))
+def test_without_the_service_adding_is_disabled(store):
+    client = TestClient(create_app(store))
     assert client.get("/api/intakes").json() == {"enabled": False, "intakes": []}
     assert client.post("/api/intakes", json={"url": "example.org"}).status_code == 503

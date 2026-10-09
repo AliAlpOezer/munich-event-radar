@@ -6,6 +6,8 @@ requires-python = ">=3.12"
 dependencies = [
     "httpx>=0.27",
     "protego>=0.3",
+    "psycopg[binary]>=3.2",
+    "psycopg-pool>=3.2",
     "pyyaml>=6.0",
     "icalendar>=6.0",
     "selectolax>=0.3",

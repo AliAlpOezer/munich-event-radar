@@ -22,3 +22,16 @@ programmes in Munich worth Alp's time, with their registration windows. Split ou
 - Next: the event-radar agent and app. Requirements: `docs/context/wayfinder/event-radar/map.md`
   (wayfinding complete). Architecture: `docs/decisions/0002-event-radar-architecture.md`.
   Then UI design, then implementation.
+
+## Development
+
+The store is Postgres (ADR 0004). Tests need a local server and never read
+`RADAR_DATABASE_URL`; each test works in its own throwaway schema.
+
+| Step | Command |
+|---|---|
+| Install Postgres (Windows, no admin) | `scoop install postgresql` |
+| Start it | `pg_ctl start -D ~/scoop/persist/postgresql/data -l ~/scoop/persist/postgresql/pg.log` |
+| Create the test database once | `psql -U postgres -h localhost -c "create database radar_test"` |
+| Run the tests | `.venv/Scripts/python -m pytest` (override with `RADAR_TEST_DATABASE_URL`) |
+| Move a SQLite store into Postgres | `RADAR_DATABASE_URL=... event-radar import-sqlite path/to/radar.db` |

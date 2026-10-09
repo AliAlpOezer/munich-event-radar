@@ -13,6 +13,7 @@ def user_agent() -> str:
 class Settings:
     data_dir: Path
     repo_dir: Path
+    database_url: str | None
     openrouter_key: str | None
     llm_daily_cap: int
     tavily_key: str | None
@@ -22,10 +23,6 @@ class Settings:
     calendar_id: str | None
     healthcheck_url: str | None
     eventbrite_token: str | None
-
-    @property
-    def db_path(self) -> Path:
-        return self.data_dir / "radar.db"
 
     @property
     def snapshot_dir(self) -> Path:
@@ -53,6 +50,7 @@ def load() -> Settings:
     return Settings(
         data_dir=_path("RADAR_DATA_DIR") or repo / "data",
         repo_dir=repo,
+        database_url=os.environ.get("RADAR_DATABASE_URL"),
         openrouter_key=os.environ.get("OPENROUTER_API_KEY"),
         llm_daily_cap=int(os.environ.get("RADAR_LLM_DAILY_CAP", "35")),
         tavily_key=os.environ.get("TAVILY_API_KEY"),

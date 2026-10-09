@@ -1,204 +1,108 @@
-import json
-import sqlite3
 import uuid
+import weakref
 from collections.abc import Iterator
 from contextlib import contextmanager
 from datetime import UTC, datetime
 from pathlib import Path
 
+from psycopg import Connection, sql
+from psycopg.rows import dict_row
+from psycopg.types.json import Jsonb
+from psycopg_pool import ConnectionPool
+
 from .model import USER_TRANSITIONS, Evidence, Observation, SourceClass, UserStatus
 
-SCHEMA = """
-CREATE TABLE IF NOT EXISTS organiser (
-    id INTEGER PRIMARY KEY,
-    name TEXT NOT NULL,
-    domain TEXT NOT NULL,
-    homepage TEXT,
-    kind TEXT,
-    ai_focus INTEGER NOT NULL DEFAULT 0,
-    status TEXT NOT NULL DEFAULT 'active'
-        CHECK (status IN ('active', 'demoted', 'removed', 'dormant')),
-    discovered_via TEXT NOT NULL,
-    discovered_at TEXT NOT NULL,
-    discovery_url TEXT,
-    UNIQUE (domain, name)
-);
-CREATE TABLE IF NOT EXISTS source (
-    id INTEGER PRIMARY KEY,
-    organiser_id INTEGER REFERENCES organiser(id),
-    url TEXT NOT NULL UNIQUE,
-    kind TEXT NOT NULL CHECK (kind IN ('feed', 'listing', 'event_page')),
-    source_class TEXT NOT NULL CHECK (source_class IN ('TICKET', 'OWN', 'AGG')),
-    browser INTEGER NOT NULL DEFAULT 0,
-    cadence_hours INTEGER NOT NULL,
-    added_at TEXT NOT NULL,
-    added_via TEXT NOT NULL,
-    last_fetched_at TEXT,
-    last_ok_at TEXT,
-    last_yield INTEGER,
-    max_yield INTEGER NOT NULL DEFAULT 0,
-    empty_streak INTEGER NOT NULL DEFAULT 0,
-    error_streak INTEGER NOT NULL DEFAULT 0,
-    last_error TEXT
-);
-CREATE TABLE IF NOT EXISTS snapshot (
-    id INTEGER PRIMARY KEY,
-    url TEXT NOT NULL,
-    content_hash TEXT,
-    fetched_at TEXT NOT NULL,
-    http_status INTEGER,
-    content_type TEXT,
-    etag TEXT,
-    last_modified TEXT,
-    error TEXT
-);
-CREATE INDEX IF NOT EXISTS snapshot_by_url ON snapshot (url, fetched_at);
-CREATE TABLE IF NOT EXISTS observation (
-    id INTEGER PRIMARY KEY,
-    snapshot_hash TEXT NOT NULL,
-    url TEXT NOT NULL,
-    source_class TEXT NOT NULL,
-    method TEXT NOT NULL,
-    item INTEGER NOT NULL,
-    platform_keys TEXT NOT NULL,
-    fields TEXT NOT NULL,
-    links TEXT NOT NULL,
-    observed_at TEXT NOT NULL,
-    UNIQUE (snapshot_hash, url, method, item)
-);
-CREATE TABLE IF NOT EXISTS event (
-    key TEXT PRIMARY KEY,
-    fields TEXT NOT NULL,
-    merge_basis TEXT NOT NULL,
-    tier TEXT,
-    tier_reasons TEXT,
-    drop_reason TEXT,
-    sources TEXT NOT NULL DEFAULT '[]',
-    first_seen TEXT NOT NULL,
-    updated_at TEXT NOT NULL
-);
-CREATE TABLE IF NOT EXISTS event_alias (
-    alias TEXT PRIMARY KEY,
-    event_key TEXT NOT NULL REFERENCES event(key)
-);
-CREATE TABLE IF NOT EXISTS user_state (
-    event_key TEXT PRIMARY KEY,
-    status TEXT NOT NULL DEFAULT 'none',
-    feedback INTEGER,
-    updated_at TEXT NOT NULL
-);
-CREATE TABLE IF NOT EXISTS push_ledger (
-    event_key TEXT NOT NULL,
-    kind TEXT NOT NULL,
-    fact_hash TEXT NOT NULL,
-    state TEXT NOT NULL CHECK (state IN ('pending', 'sent')),
-    created_at TEXT NOT NULL,
-    sent_at TEXT,
-    message_id TEXT,
-    UNIQUE (event_key, kind, fact_hash)
-);
-CREATE TABLE IF NOT EXISTS budget (
-    provider TEXT NOT NULL,
-    day TEXT NOT NULL,
-    used INTEGER NOT NULL DEFAULT 0,
-    PRIMARY KEY (provider, day)
-);
-CREATE TABLE IF NOT EXISTS extraction (
-    content_hash TEXT NOT NULL,
-    version TEXT NOT NULL,
-    model TEXT NOT NULL,
-    result TEXT NOT NULL,
-    created_at TEXT NOT NULL,
-    PRIMARY KEY (content_hash, version)
-);
-CREATE TABLE IF NOT EXISTS extraction_job (
-    snapshot_hash TEXT NOT NULL,
-    url TEXT NOT NULL,
-    priority INTEGER NOT NULL,
-    attempts INTEGER NOT NULL DEFAULT 0,
-    state TEXT NOT NULL DEFAULT 'pending' CHECK (state IN ('pending', 'done', 'needs_look')),
-    PRIMARY KEY (snapshot_hash, url)
-);
-CREATE TABLE IF NOT EXISTS intake (
-    id INTEGER PRIMARY KEY,
-    url TEXT NOT NULL,
-    events_url TEXT,
-    name TEXT,
-    state TEXT NOT NULL DEFAULT 'queued' CHECK (state IN ('queued', 'checking', 'profiling',
-        'review', 'finding', 'harvesting', 'done', 'rejected', 'failed')),
-    approved INTEGER NOT NULL DEFAULT 0,
-    profile TEXT,
-    log TEXT NOT NULL DEFAULT '[]',
-    result TEXT,
-    organiser_id INTEGER REFERENCES organiser(id),
-    error TEXT,
-    created_at TEXT NOT NULL,
-    updated_at TEXT NOT NULL
-);
-CREATE TABLE IF NOT EXISTS run (
-    id INTEGER PRIMARY KEY,
-    started_at TEXT NOT NULL,
-    finished_at TEXT,
-    outcome TEXT,
-    summary TEXT
-);
-"""
-MIGRATIONS = (
-    ("organiser", "ai_focus", "INTEGER NOT NULL DEFAULT 0"),
-    ("event", "sources", "TEXT NOT NULL DEFAULT '[]'"),
-)
+MIGRATIONS = Path(__file__).with_name("migrations")
+Row = dict
 
 
 def now_iso() -> str:
     return datetime.now(UTC).isoformat(timespec="seconds")
 
 
-def _evidence_json(fields: dict[str, Evidence]) -> str:
-    return json.dumps(
-        {k: {"value": v.value, "quote": v.quote} for k, v in fields.items()},
-        ensure_ascii=False,
-        sort_keys=True,
+def _evidence_json(fields: dict[str, Evidence]) -> Jsonb:
+    return Jsonb({k: {"value": v.value, "quote": v.quote} for k, v in fields.items()})
+
+
+def _evidence_load(raw: dict) -> dict[str, Evidence]:
+    return {k: Evidence(v["value"], v.get("quote")) for k, v in raw.items()}
+
+
+def _migrate(db: Connection, schema: str) -> None:
+    db.execute(sql.SQL("CREATE SCHEMA IF NOT EXISTS {}").format(sql.Identifier(schema)))
+    db.execute("SELECT pg_advisory_xact_lock(hashtext(%s))", (schema,))
+    db.execute(
+        "CREATE TABLE IF NOT EXISTS schema_migration"
+        " (version text PRIMARY KEY, applied_at timestamptz NOT NULL DEFAULT now())"
     )
-
-
-def _evidence_load(raw: str) -> dict[str, Evidence]:
-    return {k: Evidence(v["value"], v.get("quote")) for k, v in json.loads(raw).items()}
+    done = {r["version"] for r in db.execute("SELECT version FROM schema_migration")}
+    for path in sorted(MIGRATIONS.glob("*.sql")):
+        if path.stem not in done:
+            db.execute(path.read_text(encoding="utf-8"))
+            db.execute("INSERT INTO schema_migration (version) VALUES (%s)", (path.stem,))
 
 
 class Store:
-    def __init__(self, path: Path):
-        self.path = path
-        path.parent.mkdir(parents=True, exist_ok=True)
+    """The radar's Postgres store (ADR 0004). All tables live in `schema`, which Supabase
+    does not expose; connect through the session pooler, since each connection sets its
+    search path once."""
+
+    def __init__(self, dsn: str | None, schema: str = "radar"):
+        if not dsn:
+            raise ValueError("RADAR_DATABASE_URL is not set")
+        self.schema = schema
+
+        def configure(db: Connection) -> None:
+            db.execute(sql.SQL("SET search_path TO {}").format(sql.Identifier(schema)))
+            db.execute("SET TIME ZONE 'UTC'")
+            db.commit()
+
+        self.pool = ConnectionPool(
+            dsn,
+            min_size=1,
+            max_size=4,
+            kwargs={"row_factory": dict_row},
+            configure=configure,
+            open=True,
+        )
+        weakref.finalize(self, self.pool.close)
+        self.pool.wait(timeout=15)
         with self.tx() as db:
-            db.executescript(SCHEMA)
-            for table, column, decl in MIGRATIONS:
-                columns = {r["name"] for r in db.execute(f"PRAGMA table_info({table})")}
-                if column not in columns:
-                    db.execute(f"ALTER TABLE {table} ADD COLUMN {column} {decl}")
+            _migrate(db, schema)
+
+    @classmethod
+    @contextmanager
+    def scratch(cls, dsn: str | None) -> Iterator["Store"]:
+        """A throwaway store in its own schema, dropped afterwards: replays and tests."""
+        store = cls(dsn, f"scratch_{uuid.uuid4().hex[:12]}")
+        try:
+            yield store
+        finally:
+            with store.tx() as db:
+                db.execute(sql.SQL("DROP SCHEMA {} CASCADE").format(sql.Identifier(store.schema)))
+            store.close()
+
+    def close(self) -> None:
+        self.pool.close()
 
     @contextmanager
-    def tx(self) -> Iterator[sqlite3.Connection]:
-        db = sqlite3.connect(self.path, timeout=30)
-        db.row_factory = sqlite3.Row
-        db.execute("PRAGMA journal_mode=WAL")
-        db.execute("PRAGMA foreign_keys=ON")
-        try:
-            with db:
-                yield db
-        finally:
-            db.close()
+    def tx(self) -> Iterator[Connection]:
+        with self.pool.connection() as db:
+            yield db
 
     def record_snapshot(self, url: str, **cols) -> None:
         cols = {"url": url, "fetched_at": now_iso(), **cols}
-        names = ", ".join(cols)
-        marks = ", ".join("?" for _ in cols)
+        query = sql.SQL("INSERT INTO snapshot ({}) VALUES ({})").format(
+            sql.SQL(", ").join(map(sql.Identifier, cols)),
+            sql.SQL(", ").join(sql.Placeholder() * len(cols)),
+        )
         with self.tx() as db:
-            db.execute(f"INSERT INTO snapshot ({names}) VALUES ({marks})", tuple(cols.values()))
+            db.execute(query, tuple(cols.values()))
 
-    def latest_snapshot(self, url: str) -> sqlite3.Row | None:
+    def latest_snapshot(self, url: str) -> Row | None:
         with self.tx() as db:
             return db.execute(
-                "SELECT * FROM snapshot WHERE url = ? AND content_hash IS NOT NULL"
+                "SELECT * FROM snapshot WHERE url = %s AND content_hash IS NOT NULL"
                 " ORDER BY id DESC LIMIT 1",
                 (url,),
             ).fetchone()
@@ -208,75 +112,80 @@ class Store:
     ) -> int:
         observed = now_iso()
         with self.tx() as db:
-            for item, event in enumerate(events):
-                db.execute(
-                    "INSERT OR IGNORE INTO observation (snapshot_hash, url, source_class, method,"
-                    " item, platform_keys, fields, links, observed_at)"
-                    " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            db.cursor().executemany(
+                "INSERT INTO observation (snapshot_hash, url, source_class, method,"
+                " item, platform_keys, fields, links, observed_at)"
+                " VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s) ON CONFLICT DO NOTHING",
+                [
                     (
                         snapshot_hash,
                         url,
                         source_class.value,
                         method,
                         item,
-                        json.dumps(sorted(event.platform_keys)),
+                        Jsonb(sorted(event.platform_keys)),
                         _evidence_json(event.fields),
-                        json.dumps(list(event.links)),
+                        Jsonb(list(event.links)),
                         observed,
-                    ),
-                )
+                    )
+                    for item, event in enumerate(events)
+                ],
+            )
         return len(events)
 
     def enqueue_extraction(self, snapshot_hash: str, url: str, priority: int) -> None:
         with self.tx() as db:
             db.execute(
-                "INSERT OR IGNORE INTO extraction_job (snapshot_hash, url, priority)"
-                " VALUES (?, ?, ?)",
+                "INSERT INTO extraction_job (snapshot_hash, url, priority)"
+                " VALUES (%s, %s, %s) ON CONFLICT DO NOTHING",
                 (snapshot_hash, url, priority),
             )
 
-    def pending_extractions(self, limit: int, urls: list[str] | None = None) -> list[sqlite3.Row]:
-        only = ""
-        if urls is not None:
-            only = f" AND url IN ({','.join('?' for _ in urls)})" if urls else " AND 0"
+    def pending_extractions(self, limit: int, urls: list[str] | None = None) -> list[Row]:
+        only = " AND url = ANY(%s)" if urls is not None else ""
+        params = (urls, limit) if urls is not None else (limit,)
         with self.tx() as db:
             return db.execute(
                 f"SELECT * FROM extraction_job WHERE state = 'pending'{only}"
-                " ORDER BY priority, attempts LIMIT ?",
-                (*(urls or ()), limit),
+                " ORDER BY priority, attempts LIMIT %s",
+                params,
             ).fetchall()
 
     def finish_extraction(self, snapshot_hash: str, url: str, state: str) -> None:
         with self.tx() as db:
             db.execute(
-                "UPDATE extraction_job SET state = ?, attempts = attempts + 1"
-                " WHERE snapshot_hash = ? AND url = ?",
+                "UPDATE extraction_job SET state = %s, attempts = attempts + 1"
+                " WHERE snapshot_hash = %s AND url = %s",
                 (state, snapshot_hash, url),
             )
 
     def cached_extraction(self, content_hash: str, version: str) -> dict | None:
         with self.tx() as db:
             row = db.execute(
-                "SELECT result FROM extraction WHERE content_hash = ? AND version = ?",
+                "SELECT result FROM extraction WHERE content_hash = %s AND version = %s",
                 (content_hash, version),
             ).fetchone()
-        return json.loads(row["result"]) if row else None
+        return row["result"] if row else None
 
     def cache_extraction(self, content_hash: str, version: str, model: str, result: dict) -> None:
         with self.tx() as db:
             db.execute(
-                "INSERT OR REPLACE INTO extraction VALUES (?, ?, ?, ?, ?)",
-                (content_hash, version, model, json.dumps(result, ensure_ascii=False), now_iso()),
+                "INSERT INTO extraction (content_hash, version, model, result, created_at)"
+                " VALUES (%s, %s, %s, %s, %s) ON CONFLICT (content_hash, version) DO UPDATE"
+                " SET model = excluded.model, result = excluded.result,"
+                " created_at = excluded.created_at",
+                (content_hash, version, model, Jsonb(result), now_iso()),
             )
 
     def spend(self, provider: str, cap: int) -> bool:
-        day = datetime.now(UTC).date().isoformat()
+        day = datetime.now(UTC).date()
         with self.tx() as db:
             db.execute(
-                "INSERT OR IGNORE INTO budget (provider, day) VALUES (?, ?)", (provider, day)
+                "INSERT INTO budget (provider, day) VALUES (%s, %s) ON CONFLICT DO NOTHING",
+                (provider, day),
             )
             cursor = db.execute(
-                "UPDATE budget SET used = used + 1 WHERE provider = ? AND day = ? AND used < ?",
+                "UPDATE budget SET used = used + 1 WHERE provider = %s AND day = %s AND used < %s",
                 (provider, day, cap),
             )
             return cursor.rowcount == 1
@@ -291,24 +200,26 @@ class Store:
                 url=r["url"],
                 source_class=SourceClass(r["source_class"]),
                 method=r["method"],
-                platform_keys=json.loads(r["platform_keys"]),
+                platform_keys=r["platform_keys"],
                 fields=_evidence_load(r["fields"]),
-                observed_at=r["observed_at"],
-                links=json.loads(r["links"]),
+                observed_at=r["observed_at"].isoformat(),
+                links=r["links"],
             )
             for r in rows
         ]
 
     def add_organiser(self, name: str, domain: str, via: str, **cols) -> int:
+        ai_focus = bool(cols.get("ai_focus", False))
         with self.tx() as db:
             tomb = db.execute(
-                "SELECT 1 FROM organiser WHERE domain = ? AND status = 'removed'", (domain,)
+                "SELECT 1 FROM organiser WHERE domain = %s AND status = 'removed'", (domain,)
             ).fetchone()
             if tomb:
                 return 0
             db.execute(
-                "INSERT OR IGNORE INTO organiser (name, domain, discovered_via, discovered_at,"
-                " homepage, kind, ai_focus, discovery_url) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                "INSERT INTO organiser (name, domain, discovered_via, discovered_at,"
+                " homepage, kind, ai_focus, discovery_url)"
+                " VALUES (%s, %s, %s, %s, %s, %s, %s, %s) ON CONFLICT DO NOTHING",
                 (
                     name,
                     domain,
@@ -316,19 +227,19 @@ class Store:
                     now_iso(),
                     cols.get("homepage"),
                     cols.get("kind"),
-                    int(cols.get("ai_focus", False)),
+                    ai_focus,
                     cols.get("discovery_url"),
                 ),
             )
             # The seed file owns ai_focus on seed rows, so a re-import applies its edits.
             if via == "seed":
                 db.execute(
-                    "UPDATE organiser SET ai_focus = ? WHERE domain = ? AND name = ?"
+                    "UPDATE organiser SET ai_focus = %s WHERE domain = %s AND name = %s"
                     " AND discovered_via = 'seed'",
-                    (int(cols.get("ai_focus", False)), domain, name),
+                    (ai_focus, domain, name),
                 )
             return db.execute(
-                "SELECT id FROM organiser WHERE domain = ? AND name = ?", (domain, name)
+                "SELECT id FROM organiser WHERE domain = %s AND name = %s", (domain, name)
             ).fetchone()["id"]
 
     def add_source(
@@ -343,39 +254,40 @@ class Store:
     ) -> None:
         with self.tx() as db:
             db.execute(
-                "INSERT OR IGNORE INTO source (organiser_id, url, kind, source_class, browser,"
-                " cadence_hours, added_at, added_via) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                "INSERT INTO source (organiser_id, url, kind, source_class, browser,"
+                " cadence_hours, added_at, added_via) VALUES (%s, %s, %s, %s, %s, %s, %s, %s)"
+                " ON CONFLICT DO NOTHING",
                 (
                     organiser_id,
                     url,
                     kind,
                     source_class,
-                    int(browser),
+                    bool(browser),
                     cadence_hours,
                     now_iso(),
                     via,
                 ),
             )
 
-    def organiser_by_domain(self, domain: str) -> sqlite3.Row | None:
+    def organiser_by_domain(self, domain: str) -> Row | None:
         with self.tx() as db:
             return db.execute(
-                "SELECT * FROM organiser WHERE domain = ? ORDER BY status = 'removed' DESC",
+                "SELECT * FROM organiser WHERE domain = %s ORDER BY status = 'removed' DESC",
                 (domain,),
             ).fetchone()
 
     def set_organiser_status(self, organiser_id: int, status: str) -> None:
         with self.tx() as db:
-            db.execute("UPDATE organiser SET status = ? WHERE id = ?", (status, organiser_id))
+            db.execute("UPDATE organiser SET status = %s WHERE id = %s", (status, organiser_id))
 
-    def source(self, url: str) -> sqlite3.Row | None:
+    def source(self, url: str) -> Row | None:
         with self.tx() as db:
-            return db.execute("SELECT * FROM source WHERE url = ?", (url,)).fetchone()
+            return db.execute("SELECT * FROM source WHERE url = %s", (url,)).fetchone()
 
-    def organiser_sources(self, organiser_id: int) -> list[sqlite3.Row]:
+    def organiser_sources(self, organiser_id: int) -> list[Row]:
         with self.tx() as db:
             return db.execute(
-                "SELECT * FROM source WHERE organiser_id = ? ORDER BY id", (organiser_id,)
+                "SELECT * FROM source WHERE organiser_id = %s ORDER BY id", (organiser_id,)
             ).fetchall()
 
     def focused_urls(self) -> set[str]:
@@ -384,20 +296,20 @@ class Store:
                 r["url"]
                 for r in db.execute(
                     "SELECT s.url FROM source s JOIN organiser o ON o.id = s.organiser_id"
-                    " WHERE o.ai_focus = 1"
+                    " WHERE o.ai_focus"
                 )
             }
 
-    def due_sources(self, now: str, browser: bool = False) -> list[sqlite3.Row]:
+    def due_sources(self, now: str, browser: bool = False) -> list[Row]:
         with self.tx() as db:
             return db.execute(
                 "SELECT s.* FROM source s LEFT JOIN organiser o ON o.id = s.organiser_id"
-                " WHERE s.browser = ? AND COALESCE(o.status, 'active') NOT IN ('removed')"
-                " AND (s.last_fetched_at IS NULL OR"
-                "      datetime(s.last_fetched_at, '+' || s.cadence_hours || ' hours')"
-                "      <= datetime(?))"
+                " WHERE s.browser = %s AND COALESCE(o.status, 'active') <> 'removed'"
+                " AND (s.last_fetched_at IS NULL"
+                "      OR s.last_fetched_at + make_interval(hours => s.cadence_hours)"
+                "         <= %s::timestamptz)"
                 " ORDER BY s.last_fetched_at IS NOT NULL, s.kind = 'event_page', s.id",
-                (int(browser), now),
+                (bool(browser), now),
             ).fetchall()
 
     def mark_source(self, source_id: int, ok: bool, error: str | None, yielded: int | None):
@@ -405,24 +317,25 @@ class Store:
         with self.tx() as db:
             if not ok:
                 db.execute(
-                    "UPDATE source SET last_fetched_at = ?, error_streak = error_streak + 1,"
-                    " last_error = ? WHERE id = ?",
+                    "UPDATE source SET last_fetched_at = %s, error_streak = error_streak + 1,"
+                    " last_error = %s WHERE id = %s",
                     (stamp, error, source_id),
                 )
                 return
             db.execute(
-                "UPDATE source SET last_fetched_at = ?, last_ok_at = ?, error_streak = 0,"
-                " last_error = NULL, last_yield = ?, max_yield = MAX(max_yield, ?),"
-                " empty_streak = CASE WHEN ? = 0 AND max_yield > 0 THEN empty_streak + 1"
-                " ELSE 0 END WHERE id = ?",
-                (stamp, stamp, yielded, yielded, yielded, source_id),
+                "UPDATE source SET last_fetched_at = %(at)s, last_ok_at = %(at)s,"
+                " error_streak = 0, last_error = NULL, last_yield = %(n)s,"
+                " max_yield = GREATEST(max_yield, %(n)s),"
+                " empty_streak = CASE WHEN %(n)s = 0 AND max_yield > 0 THEN empty_streak + 1"
+                " ELSE 0 END WHERE id = %(id)s",
+                {"at": stamp, "n": yielded, "id": source_id},
             )
 
     def set_cadence(self, urls: list[str], hours: int) -> None:
         with self.tx() as db:
-            db.executemany(
-                "UPDATE source SET cadence_hours = ? WHERE url = ? AND kind = 'event_page'",
-                [(hours, u) for u in urls],
+            db.execute(
+                "UPDATE source SET cadence_hours = %s WHERE url = ANY(%s) AND kind = 'event_page'",
+                (hours, urls),
             )
 
     def save_events(
@@ -432,81 +345,83 @@ class Store:
         counts = {"new": 0, "updated": 0, "merged": 0}
         with self.tx() as db:
             for aliases, fields, basis, verdict, sources in resolved:
-                marks = ",".join("?" for _ in aliases)
                 found = db.execute(
-                    f"SELECT DISTINCT e.key, e.first_seen FROM event_alias a JOIN event e"
-                    f" ON e.key = a.event_key WHERE a.alias IN ({marks}) ORDER BY e.first_seen",
-                    tuple(aliases),
+                    "SELECT DISTINCT e.key, e.first_seen FROM event_alias a JOIN event e"
+                    " ON e.key = a.event_key WHERE a.alias = ANY(%s) ORDER BY e.first_seen",
+                    (list(aliases),),
                 ).fetchall()
                 key = found[0]["key"] if found else uuid.uuid4().hex[:12]
                 for loser in found[1:]:
                     db.execute(
-                        "UPDATE event_alias SET event_key = ? WHERE event_key = ?",
+                        "UPDATE event_alias SET event_key = %s WHERE event_key = %s",
                         (key, loser["key"]),
                     )
                     db.execute(
-                        "UPDATE OR IGNORE user_state SET event_key = ? WHERE event_key = ?",
-                        (key, loser["key"]),
+                        "UPDATE user_state SET event_key = %(key)s WHERE event_key = %(loser)s"
+                        " AND NOT EXISTS (SELECT 1 FROM user_state WHERE event_key = %(key)s)",
+                        {"key": key, "loser": loser["key"]},
                     )
-                    db.execute("DELETE FROM user_state WHERE event_key = ?", (loser["key"],))
-                    db.execute("DELETE FROM event WHERE key = ?", (loser["key"],))
+                    db.execute("DELETE FROM user_state WHERE event_key = %s", (loser["key"],))
+                    db.execute("DELETE FROM event WHERE key = %s", (loser["key"],))
                     counts["merged"] += 1
                 counts["updated" if found else "new"] += 1
                 db.execute(
                     "INSERT INTO event (key, fields, merge_basis, tier, tier_reasons, drop_reason,"
-                    " sources, first_seen, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"
+                    " sources, first_seen, updated_at)"
+                    " VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)"
                     " ON CONFLICT (key) DO UPDATE SET fields = excluded.fields,"
                     " merge_basis = excluded.merge_basis, tier = excluded.tier,"
                     " tier_reasons = excluded.tier_reasons, drop_reason = excluded.drop_reason,"
                     " sources = excluded.sources, updated_at = excluded.updated_at",
                     (
                         key,
-                        json.dumps(fields, ensure_ascii=False, sort_keys=True),
+                        Jsonb(fields),
                         basis,
                         verdict.tier,
-                        json.dumps(verdict.reasons),
+                        Jsonb(verdict.reasons),
                         verdict.drop_reason,
-                        json.dumps(sorted(sources)),
+                        Jsonb(sorted(sources)),
                         stamp,
                         stamp,
                     ),
                 )
-                db.executemany(
-                    "INSERT OR IGNORE INTO event_alias VALUES (?, ?)", [(a, key) for a in aliases]
+                db.cursor().executemany(
+                    "INSERT INTO event_alias VALUES (%s, %s) ON CONFLICT DO NOTHING",
+                    [(a, key) for a in aliases],
                 )
         return counts
 
-    def events(self) -> list[sqlite3.Row]:
+    def events(self) -> list[Row]:
         with self.tx() as db:
             return db.execute(
                 "SELECT e.*, COALESCE(u.status, 'none') AS user_status FROM event e"
                 " LEFT JOIN user_state u ON u.event_key = e.key"
             ).fetchall()
 
-    def organisers(self) -> list[sqlite3.Row]:
+    def organisers(self) -> list[Row]:
         with self.tx() as db:
             return db.execute("SELECT * FROM organiser ORDER BY name").fetchall()
 
-    def sources(self) -> list[sqlite3.Row]:
+    def sources(self) -> list[Row]:
         with self.tx() as db:
             return db.execute("SELECT * FROM source ORDER BY id").fetchall()
 
-    def runs(self, limit: int) -> list[sqlite3.Row]:
+    def runs(self, limit: int) -> list[Row]:
         with self.tx() as db:
-            return db.execute("SELECT * FROM run ORDER BY id DESC LIMIT ?", (limit,)).fetchall()
+            return db.execute("SELECT * FROM run ORDER BY id DESC LIMIT %s", (limit,)).fetchall()
 
     def set_user_status(self, event_key: str, status: UserStatus) -> UserStatus:
         with self.tx() as db:
-            if not db.execute("SELECT 1 FROM event WHERE key = ?", (event_key,)).fetchone():
+            if not db.execute("SELECT 1 FROM event WHERE key = %s", (event_key,)).fetchone():
                 raise KeyError(event_key)
             row = db.execute(
-                "SELECT status FROM user_state WHERE event_key = ?", (event_key,)
+                "SELECT status FROM user_state WHERE event_key = %s FOR UPDATE", (event_key,)
             ).fetchone()
             current = UserStatus(row["status"]) if row else UserStatus.NONE
             if status not in USER_TRANSITIONS[current]:
                 raise ValueError(f"{current} cannot become {status}")
             db.execute(
-                "INSERT INTO user_state (event_key, status, updated_at) VALUES (?, ?, ?)"
+                "INSERT INTO user_state (event_key, status, updated_at) VALUES (%s, %s, %s)"
                 " ON CONFLICT (event_key) DO UPDATE SET status = excluded.status,"
                 " updated_at = excluded.updated_at",
                 (event_key, status.value, now_iso()),
@@ -518,37 +433,38 @@ class Store:
         with self.tx() as db:
             return db.execute(
                 "INSERT INTO intake (url, events_url, name, created_at, updated_at)"
-                " VALUES (?, ?, ?, ?, ?)",
+                " VALUES (%s, %s, %s, %s, %s) RETURNING id",
                 (url, events_url, name, stamp, stamp),
-            ).lastrowid
+            ).fetchone()["id"]
 
-    def intake(self, intake_id: int) -> sqlite3.Row | None:
+    def intake(self, intake_id: int) -> Row | None:
         with self.tx() as db:
-            return db.execute("SELECT * FROM intake WHERE id = ?", (intake_id,)).fetchone()
+            return db.execute("SELECT * FROM intake WHERE id = %s", (intake_id,)).fetchone()
 
-    def intakes(self, limit: int) -> list[sqlite3.Row]:
+    def intakes(self, limit: int) -> list[Row]:
         with self.tx() as db:
-            return db.execute("SELECT * FROM intake ORDER BY id DESC LIMIT ?", (limit,)).fetchall()
+            return db.execute("SELECT * FROM intake ORDER BY id DESC LIMIT %s", (limit,)).fetchall()
 
     def update_intake(self, intake_id: int, **cols) -> None:
         cols = {**cols, "updated_at": now_iso()}
         for name in ("profile", "result"):
-            if name in cols and not isinstance(cols[name], str | None):
-                cols[name] = json.dumps(cols[name], ensure_ascii=False)
-        assignments = ", ".join(f"{name} = ?" for name in cols)
+            if cols.get(name) is not None:
+                cols[name] = Jsonb(cols[name])
+        query = sql.SQL("UPDATE intake SET {} WHERE id = %s").format(
+            sql.SQL(", ").join(sql.SQL("{} = %s").format(sql.Identifier(name)) for name in cols)
+        )
         with self.tx() as db:
-            db.execute(f"UPDATE intake SET {assignments} WHERE id = ?", (*cols.values(), intake_id))
+            db.execute(query, (*cols.values(), intake_id))
 
     def log_intake(self, intake_id: int, step: str, text: str, level: str = "info") -> None:
         entry = {"at": now_iso(), "step": step, "text": text, "level": level}
         with self.tx() as db:
             db.execute(
-                "UPDATE intake SET log = json_insert(log, '$[#]', json(?)), updated_at = ?"
-                " WHERE id = ?",
-                (json.dumps(entry, ensure_ascii=False), entry["at"], intake_id),
+                "UPDATE intake SET log = log || %s, updated_at = %s WHERE id = %s",
+                (Jsonb([entry]), entry["at"], intake_id),
             )
 
-    def next_intake(self) -> sqlite3.Row | None:
+    def next_intake(self) -> Row | None:
         with self.tx() as db:
             return db.execute(
                 "SELECT * FROM intake WHERE state = 'queued' ORDER BY id LIMIT 1"
@@ -563,11 +479,13 @@ class Store:
 
     def start_run(self) -> int:
         with self.tx() as db:
-            return db.execute("INSERT INTO run (started_at) VALUES (?)", (now_iso(),)).lastrowid
+            return db.execute(
+                "INSERT INTO run (started_at) VALUES (%s) RETURNING id", (now_iso(),)
+            ).fetchone()["id"]
 
     def finish_run(self, run_id: int, outcome: str, summary: dict) -> None:
         with self.tx() as db:
             db.execute(
-                "UPDATE run SET finished_at = ?, outcome = ?, summary = ? WHERE id = ?",
-                (now_iso(), outcome, json.dumps(summary), run_id),
+                "UPDATE run SET finished_at = %s, outcome = %s, summary = %s WHERE id = %s",
+                (now_iso(), outcome, Jsonb(summary), run_id),
             )

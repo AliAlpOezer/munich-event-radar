@@ -1,4 +1,3 @@
-import json
 from collections import Counter
 from pathlib import Path
 
@@ -38,12 +37,12 @@ def _run(row) -> dict:
         "started_at": row["started_at"],
         "finished_at": row["finished_at"],
         "outcome": row["outcome"],
-        "summary": json.loads(row["summary"]) if row["summary"] else {},
+        "summary": row["summary"] or {},
     }
 
 
 def _image(event) -> str | None:
-    return (json.loads(event["fields"]).get("image") or {}).get("value")
+    return (event["fields"].get("image") or {}).get("value")
 
 
 def create_app(store: Store, intake: IntakeService | None = None) -> FastAPI:
@@ -69,20 +68,20 @@ def create_app(store: Store, intake: IntakeService | None = None) -> FastAPI:
                     "class": source_of[url]["source_class"] if url in source_of else None,
                     "organiser_id": source_of[url]["organiser_id"] if url in source_of else None,
                 }
-                for url in json.loads(e["sources"])
+                for url in e["sources"]
             ]
             rows.append(
                 {
                     "key": e["key"],
                     "tier": e["tier"],
                     "drop_reason": e["drop_reason"],
-                    "reasons": json.loads(e["tier_reasons"] or "[]"),
+                    "reasons": e["tier_reasons"] or [],
                     "merge_basis": e["merge_basis"],
                     "user_status": e["user_status"],
                     "first_seen": e["first_seen"],
                     "updated_at": e["updated_at"],
                     "stale": bool(last_ok and e["updated_at"] < last_ok["started_at"]),
-                    "fields": json.loads(e["fields"]),
+                    "fields": e["fields"],
                     "cover": image if images[image] < SHARED_IMAGE else None,
                     "sources": sources,
                     "organiser_ids": sorted(
@@ -121,7 +120,7 @@ def create_app(store: Store, intake: IntakeService | None = None) -> FastAPI:
                     "name": o["name"],
                     "domain": o["domain"],
                     "kind": o["kind"],
-                    "ai_focus": bool(o["ai_focus"]),
+                    "ai_focus": o["ai_focus"],
                     "status": o["status"],
                     "homepage": o["homepage"],
                     "discovered_via": o["discovered_via"],
