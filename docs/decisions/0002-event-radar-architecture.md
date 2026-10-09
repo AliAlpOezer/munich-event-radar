@@ -369,6 +369,7 @@ reviewed, committed, then imported with `discovered_via=seed` and each row's sou
 `research/` is raw intake by repo rule, not an input contract.
 
 ### D15. Web app: a JSON API and a zero-build page, served from the box over Tailscale (2026-10-08)
+*Hosting superseded by ADR 0004 (2026-10-09): Supabase plus Cloudflare Pages, no API server.*
 `event_radar.web` is FastAPI with three read routes (`/api/events`, `/api/organisers`,
 `/api/status`) and one write (`POST /api/events/{key}/status`, the `user_status`
 transitions). It is the apartment agent's dashboard pattern: a hand-written HTML, CSS and JS
