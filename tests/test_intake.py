@@ -36,20 +36,21 @@ def test_private_and_tailnet_addresses_are_refused(host):
         urls.check_host(host)
 
 
-def test_link_scan_finds_cdtm_events_page_and_luma_calendar():
-    url = "https://www.cdtm.com/"
-    tree = LexborHTMLParser((FIXTURES / "cdtm-home-2026-10-08.html").read_bytes())
+def test_link_scan_finds_the_events_page_and_luma_calendar():
+    url = "https://www.example-club.org/"
+    tree = LexborHTMLParser((FIXTURES / "club-home.html").read_bytes())
     found = discovery.scan_links(tree, url, SIGNALS)
-    assert "https://www.cdtm.com/events" in found
-    assert "https://luma.com/user/usr-155pp5bEZxqeQBp" in found
-    assert not any("program" in link for link in found)
+    assert found == [
+        "https://www.example-club.org/events",
+        "https://luma.com/user/usr-example123",
+    ]
 
 
-def test_cdtm_events_page_is_a_javascript_shell():
-    events = (FIXTURES / "cdtm-events-2026-10-08.html").read_bytes()
-    home = (FIXTURES / "cdtm-home-2026-10-08.html").read_bytes()
-    assert discovery.is_shell(events, "https://www.cdtm.com/events")
-    assert not discovery.is_shell(home, "https://www.cdtm.com/")
+def test_an_events_page_that_renders_with_javascript_is_a_shell():
+    events = (FIXTURES / "club-events-shell.html").read_bytes()
+    home = (FIXTURES / "club-home.html").read_bytes()
+    assert discovery.is_shell(events, "https://www.example-club.org/events")
+    assert not discovery.is_shell(home, "https://www.example-club.org/")
 
 
 def test_platform_pages_become_trackable_sources():
