@@ -67,14 +67,26 @@ COMMANDS = {
 
 def main() -> None:
     parser = argparse.ArgumentParser(prog="event-radar")
-    parser.add_argument("command", choices=sorted([*COMMANDS, "import-sqlite"]))
-    parser.add_argument("path", nargs="?", type=Path, help="import-sqlite: the SQLite file")
+    parser.add_argument("command", choices=sorted([*COMMANDS, "import-sqlite", "grant-admin"]))
+    parser.add_argument(
+        "target", nargs="?", help="import-sqlite: the SQLite file; grant-admin: the user's email"
+    )
+    parser.add_argument(
+        "--owner",
+        action="store_true",
+        help="grant-admin: the owner, who also receives the statuses kept before logins",
+    )
     args = parser.parse_args()
     settings = config.load()
     if args.command == "import-sqlite":
-        if not args.path:
+        if not args.target:
             parser.error("import-sqlite needs the path of the SQLite file")
-        print(json.dumps(sqlite_import.run(Store(settings.database_url), args.path)))
+        print(json.dumps(sqlite_import.run(Store(settings.database_url), Path(args.target))))
+        return
+    if args.command == "grant-admin":
+        if not args.target:
+            parser.error("grant-admin needs the email the user logged in with")
+        print(json.dumps(Store(settings.database_url).grant_admin(args.target, args.owner)))
         return
     COMMANDS[args.command](settings)
 

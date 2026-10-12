@@ -1,6 +1,6 @@
 # ADR 0004: Public hosting on Supabase and Cloudflare Pages
 
-**Status:** DECIDED, not built
+**Status:** DECIDED, being built (step 1 done; step 2 shaped by ADR 0005)
 **Date:** 2026-10-09
 **Inputs:** Alp's request of 2026-10-09 (host the app for common use, Supabase plus
 Cloudflare, pay for nothing, ask before changing any feature) and Alp's four choices of the
@@ -93,8 +93,9 @@ Each step changes behaviour, so each starts only after Alp agrees to it (Alp, 20
 ## Open questions
 
 1. How intakes reach the worker quickly: Postgres `LISTEN`/`NOTIFY` over a direct
-   connection, or a poll every minute. Decide in step 3.
+   connection, or a poll every minute. Decided in ADR 0005: both, `NOTIFY` with a 30 s poll
+   as the fallback.
 2. Where tests get Postgres on the 4 GB laptop: a native Windows Postgres, or a second free
    Supabase project as the test database. Decide in step 1.
-3. Who the admins are beyond Alp.
+3. Who the admins are beyond Alp. Answered (Alp, 2026-10-12): nobody; Alp is always the only admin.
 4. Does the harvester's activity prevent pausing? Observe after step 6.

@@ -27,13 +27,6 @@ class UserStatus(StrEnum):
     SKIPPED = "skipped"
 
 
-USER_TRANSITIONS: dict[UserStatus, set[UserStatus]] = {
-    UserStatus.NONE: {UserStatus.APPLIED, UserStatus.REGISTERED, UserStatus.SKIPPED},
-    UserStatus.APPLIED: {UserStatus.REGISTERED, UserStatus.SKIPPED, UserStatus.NONE},
-    UserStatus.REGISTERED: {UserStatus.NONE},
-    UserStatus.SKIPPED: {UserStatus.NONE},
-}
-
 EVENT_FIELDS = (
     "title",
     "starts_at",

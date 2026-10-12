@@ -25,6 +25,10 @@ TABLES = (
     "intake",
     "run",
 )
+# Statuses predate logins, so they wait to be claimed by the owner (ADR 0005). A 'none'
+# status says nothing, and a status whose event is gone cannot be shown.
+TARGET = {"user_state": "user_state_unclaimed"}
+WHERE = {"user_state": " WHERE status <> 'none' AND event_key IN (SELECT key FROM event)"}
 
 
 def _convert(value, kind: str):
@@ -49,21 +53,22 @@ def run(store: Store, path: Path) -> dict[str, int]:
             if db.execute("SELECT 1 FROM organiser LIMIT 1").fetchone():
                 raise RuntimeError(f"schema {store.schema} already holds data; import refused")
             for table in TABLES:
+                target = TARGET.get(table, table)
                 kinds = {
                     r["column_name"]: r["data_type"]
                     for r in db.execute(
                         "SELECT column_name, data_type FROM information_schema.columns"
                         " WHERE table_schema = %s AND table_name = %s",
-                        (store.schema, table),
+                        (store.schema, target),
                     )
                 }
-                rows = source.execute(f"SELECT * FROM {table}").fetchall()
+                rows = source.execute(f"SELECT * FROM {table}{WHERE.get(table, '')}").fetchall()
                 counts[table] = len(rows)
                 if not rows:
                     continue
                 columns = [c for c in rows[0].keys() if c in kinds]
                 query = sql.SQL("INSERT INTO {} ({}) VALUES ({})").format(
-                    sql.Identifier(table),
+                    sql.Identifier(target),
                     sql.SQL(", ").join(map(sql.Identifier, columns)),
                     sql.SQL(", ").join(sql.Placeholder() * len(columns)),
                 )

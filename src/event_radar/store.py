@@ -1,3 +1,4 @@
+import hashlib
 import uuid
 import weakref
 from collections.abc import Iterator
@@ -5,15 +6,22 @@ from contextlib import contextmanager
 from datetime import UTC, datetime
 from pathlib import Path
 
-from psycopg import Connection, sql
+from psycopg import Connection, errors, sql
 from psycopg.rows import dict_row
 from psycopg.types.json import Jsonb
 from psycopg_pool import ConnectionPool
 
-from .model import USER_TRANSITIONS, Evidence, Observation, SourceClass, UserStatus
+from .model import Evidence, Observation, SourceClass, UserStatus
 
 MIGRATIONS = Path(__file__).with_name("migrations")
+SQL = Path(__file__).with_name("sql")
 Row = dict
+# Alp's statuses: the owner's rows, or the unclaimed ones until an owner exists (ADR 0005).
+OWNER_STATE = (
+    "SELECT event_key, status FROM user_state"
+    " WHERE user_id = (SELECT user_id FROM admin WHERE role = 'owner')"
+    " UNION ALL SELECT event_key, status FROM user_state_unclaimed"
+)
 
 
 def now_iso() -> str:
@@ -28,29 +36,63 @@ def _evidence_load(raw: dict) -> dict[str, Evidence]:
     return {k: Evidence(v["value"], v.get("quote")) for k, v in raw.items()}
 
 
-def _migrate(db: Connection, schema: str) -> None:
+def _search_path(db: Connection, *schemas: str) -> None:
+    path = ", ".join(sql.Identifier(s).as_string(db) for s in schemas)
+    db.execute("SELECT set_config('search_path', %s, true)", (f"{path}, pg_temp",))
+
+
+def _migrate(db: Connection, schema: str, api: str) -> None:
+    """Apply pending migrations to `schema`, then rebuild `api` from api.sql if anything
+    changed (ADR 0005). One transaction, serialised by an advisory lock."""
     db.execute(sql.SQL("CREATE SCHEMA IF NOT EXISTS {}").format(sql.Identifier(schema)))
     db.execute("SELECT pg_advisory_xact_lock(hashtext(%s))", (schema,))
+    _search_path(db, schema)
+    db.execute((SQL / "supabase_shim.sql").read_text(encoding="utf-8"))
     db.execute(
         "CREATE TABLE IF NOT EXISTS schema_migration"
         " (version text PRIMARY KEY, applied_at timestamptz NOT NULL DEFAULT now())"
     )
+    db.execute("CREATE TABLE IF NOT EXISTS api_build (hash text NOT NULL)")
     done = {r["version"] for r in db.execute("SELECT version FROM schema_migration")}
-    for path in sorted(MIGRATIONS.glob("*.sql")):
-        if path.stem not in done:
-            db.execute(path.read_text(encoding="utf-8"))
-            db.execute("INSERT INTO schema_migration (version) VALUES (%s)", (path.stem,))
+    pending = [p for p in sorted(MIGRATIONS.glob("*.sql")) if p.stem not in done]
+    api_sql = (SQL / "api.sql").read_text(encoding="utf-8")
+    digest = hashlib.sha256(api_sql.encode()).hexdigest()
+    built = db.execute("SELECT hash FROM api_build").fetchone()
+    present = db.execute("SELECT to_regnamespace(%s) IS NOT NULL AS ok", (api,)).fetchone()
+    if not pending and present["ok"] and built and built["hash"] == digest:
+        return
+    db.execute(sql.SQL("DROP SCHEMA IF EXISTS {} CASCADE").format(sql.Identifier(api)))
+    for path in pending:
+        db.execute(path.read_text(encoding="utf-8"))
+        db.execute("INSERT INTO schema_migration (version) VALUES (%s)", (path.stem,))
+    unguarded = db.execute(
+        "SELECT tablename FROM pg_tables WHERE schemaname = %s AND NOT rowsecurity", (schema,)
+    ).fetchall()
+    for row in unguarded:
+        db.execute(
+            sql.SQL("ALTER TABLE {} ENABLE ROW LEVEL SECURITY").format(
+                sql.Identifier(row["tablename"])
+            )
+        )
+    db.execute(sql.SQL("CREATE SCHEMA {}").format(sql.Identifier(api)))
+    _search_path(db, api, schema)
+    db.execute(api_sql)
+    _search_path(db, schema)
+    db.execute("DELETE FROM api_build")
+    db.execute("INSERT INTO api_build (hash) VALUES (%s)", (digest,))
+    db.execute("NOTIFY pgrst, 'reload schema'")
 
 
 class Store:
     """The radar's Postgres store (ADR 0004). All tables live in `schema`, which Supabase
-    does not expose; connect through the session pooler, since each connection sets its
-    search path once."""
+    does not expose; PostgREST sees only `api` (ADR 0005). Connect through the session
+    pooler, since each connection sets its search path once."""
 
-    def __init__(self, dsn: str | None, schema: str = "radar"):
+    def __init__(self, dsn: str | None, schema: str = "radar", api: str = "api"):
         if not dsn:
             raise ValueError("RADAR_DATABASE_URL is not set")
         self.schema = schema
+        self.api = api
 
         def configure(db: Connection) -> None:
             db.execute(sql.SQL("SET search_path TO {}").format(sql.Identifier(schema)))
@@ -68,18 +110,20 @@ class Store:
         weakref.finalize(self, self.pool.close)
         self.pool.wait(timeout=15)
         with self.tx() as db:
-            _migrate(db, schema)
+            _migrate(db, schema, api)
 
     @classmethod
     @contextmanager
     def scratch(cls, dsn: str | None) -> Iterator["Store"]:
         """A throwaway store in its own schema, dropped afterwards: replays and tests."""
-        store = cls(dsn, f"scratch_{uuid.uuid4().hex[:12]}")
+        name = f"scratch_{uuid.uuid4().hex[:12]}"
+        store = cls(dsn, name, f"{name}_api")
         try:
             yield store
         finally:
             with store.tx() as db:
-                db.execute(sql.SQL("DROP SCHEMA {} CASCADE").format(sql.Identifier(store.schema)))
+                for schema in (store.api, store.schema):
+                    db.execute(sql.SQL("DROP SCHEMA {} CASCADE").format(sql.Identifier(schema)))
             store.close()
 
     def close(self) -> None:
@@ -356,12 +400,20 @@ class Store:
                         "UPDATE event_alias SET event_key = %s WHERE event_key = %s",
                         (key, loser["key"]),
                     )
+                    # Each user's status moves to the survivor unless they set one there;
+                    # deleting the loser cascades to whatever did not move.
                     db.execute(
-                        "UPDATE user_state SET event_key = %(key)s WHERE event_key = %(loser)s"
-                        " AND NOT EXISTS (SELECT 1 FROM user_state WHERE event_key = %(key)s)",
+                        "UPDATE user_state l SET event_key = %(key)s WHERE l.event_key = %(loser)s"
+                        " AND NOT EXISTS (SELECT FROM user_state w"
+                        "                 WHERE w.user_id = l.user_id AND w.event_key = %(key)s)",
                         {"key": key, "loser": loser["key"]},
                     )
-                    db.execute("DELETE FROM user_state WHERE event_key = %s", (loser["key"],))
+                    db.execute(
+                        "UPDATE user_state_unclaimed SET event_key = %(key)s"
+                        " WHERE event_key = %(loser)s AND NOT EXISTS"
+                        " (SELECT FROM user_state_unclaimed WHERE event_key = %(key)s)",
+                        {"key": key, "loser": loser["key"]},
+                    )
                     db.execute("DELETE FROM event WHERE key = %s", (loser["key"],))
                     counts["merged"] += 1
                 counts["updated" if found else "new"] += 1
@@ -394,8 +446,9 @@ class Store:
     def events(self) -> list[Row]:
         with self.tx() as db:
             return db.execute(
-                "SELECT e.*, COALESCE(u.status, 'none') AS user_status FROM event e"
-                " LEFT JOIN user_state u ON u.event_key = e.key"
+                f"WITH owner_state AS ({OWNER_STATE})"
+                " SELECT e.*, COALESCE(u.status, 'none') AS user_status FROM event e"
+                " LEFT JOIN owner_state u ON u.event_key = e.key"
             ).fetchall()
 
     def organisers(self) -> list[Row]:
@@ -411,22 +464,58 @@ class Store:
             return db.execute("SELECT * FROM run ORDER BY id DESC LIMIT %s", (limit,)).fetchall()
 
     def set_user_status(self, event_key: str, status: UserStatus) -> UserStatus:
+        """The owner's status (the pre-login web app). The database checks the transition."""
         with self.tx() as db:
-            if not db.execute("SELECT 1 FROM event WHERE key = %s", (event_key,)).fetchone():
-                raise KeyError(event_key)
-            row = db.execute(
-                "SELECT status FROM user_state WHERE event_key = %s FOR UPDATE", (event_key,)
-            ).fetchone()
-            current = UserStatus(row["status"]) if row else UserStatus.NONE
-            if status not in USER_TRANSITIONS[current]:
-                raise ValueError(f"{current} cannot become {status}")
-            db.execute(
-                "INSERT INTO user_state (event_key, status, updated_at) VALUES (%s, %s, %s)"
-                " ON CONFLICT (event_key) DO UPDATE SET status = excluded.status,"
-                " updated_at = excluded.updated_at",
-                (event_key, status.value, now_iso()),
-            )
+            owner = db.execute("SELECT user_id FROM admin WHERE role = 'owner'").fetchone()
+            try:
+                if owner:
+                    db.execute(
+                        "INSERT INTO user_state (user_id, event_key, status, updated_at)"
+                        " VALUES (%s, %s, %s, %s) ON CONFLICT (user_id, event_key) DO UPDATE"
+                        " SET status = excluded.status, updated_at = excluded.updated_at",
+                        (owner["user_id"], event_key, status.value, now_iso()),
+                    )
+                else:
+                    db.execute(
+                        "INSERT INTO user_state_unclaimed (event_key, status, updated_at)"
+                        " VALUES (%s, %s, %s) ON CONFLICT (event_key) DO UPDATE"
+                        " SET status = excluded.status, updated_at = excluded.updated_at",
+                        (event_key, status.value, now_iso()),
+                    )
+            except errors.ForeignKeyViolation as exc:
+                raise KeyError(event_key) from exc
+            except errors.CheckViolation as exc:
+                raise ValueError(exc.diag.message_primary) from exc
         return status
+
+    def grant_admin(self, email: str, owner: bool = False) -> dict:
+        """Make a user who has logged in once an admin. The owner also receives the
+        unclaimed statuses; the user's own rows win where both exist."""
+        role = "owner" if owner else "admin"
+        with self.tx() as db:
+            user = db.execute(
+                "SELECT id FROM auth.users WHERE lower(email) = lower(%s)", (email,)
+            ).fetchone()
+            if user is None:
+                raise LookupError(f"No user with email {email}; they must log in once first")
+            try:
+                db.execute(
+                    "INSERT INTO admin (user_id, role) VALUES (%s, %s)"
+                    " ON CONFLICT (user_id) DO UPDATE SET role = excluded.role",
+                    (user["id"], role),
+                )
+            except errors.UniqueViolation as exc:
+                raise ValueError("There is already an owner") from exc
+            claimed = 0
+            if owner:
+                claimed = db.execute(
+                    "INSERT INTO user_state (user_id, event_key, status, feedback, updated_at)"
+                    " SELECT %s, event_key, status, feedback, updated_at"
+                    " FROM user_state_unclaimed ON CONFLICT DO NOTHING",
+                    (user["id"],),
+                ).rowcount
+                db.execute("DELETE FROM user_state_unclaimed")
+        return {"user_id": str(user["id"]), "role": role, "claimed": claimed}
 
     def create_intake(self, url: str, events_url: str | None, name: str | None) -> int:
         stamp = now_iso()
