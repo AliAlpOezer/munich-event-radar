@@ -168,6 +168,22 @@ h1, h2, h3 { text-wrap: balance; }
 .theme .sun, .theme .to-light, [data-theme="dark"] .theme .moon, [data-theme="dark"] .theme .to-dark { display: none; }
 [data-theme="dark"] .theme .sun { display: block; }
 [data-theme="dark"] .theme .to-light { display: inline; }
+.btn.account { gap: 8px; max-width: 220px; }
+.btn.account:has(.avatar) { padding-left: 5px; }
+.account-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.avatar {
+  flex: none;
+  display: inline-grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: var(--hot);
+  color: var(--on-accent);
+  font-size: 0.75rem;
+  font-weight: 600;
+  line-height: 1;
+}
 
 /* Banner: a photo of the city under a navy scrim, closed by the palette strip. */
 .hero {
@@ -516,6 +532,8 @@ td.num { font-variant-numeric: tabular-nums; white-space: nowrap; }
 
 /* Adding an organisation */
 .add-org { margin-left: auto; }
+.login-options { display: grid; gap: 8px; }
+.login-options .btn { justify-content: center; min-height: 44px; }
 .intakes { margin-top: 16px; display: grid; gap: 8px; }
 .intakes h2 { font-size: 0.85rem; color: var(--muted); margin: 0; }
 .intake-row {
@@ -631,11 +649,15 @@ dl.facts dd { margin: 0; overflow-wrap: anywhere; }
 .sources li { display: flex; gap: 8px; align-items: baseline; min-width: 0; }
 .sources a { font-family: var(--mono); font-size: 0.8rem; overflow-wrap: anywhere; min-width: 0; }
 .description { white-space: pre-line; overflow-wrap: anywhere; margin: 0; }
+.lede { margin: 0; }
 details.more summary { cursor: pointer; color: var(--accent); font-size: 0.88rem; }
 
 @media (max-width: 720px) {
   .bar-inner { gap: 12px; flex-wrap: wrap; padding-block: 8px 0; }
   #theme-toggle { order: 1; margin-left: auto; }
+  #account-button { order: 1; }
+  .btn.account:has(.avatar) { padding-right: 5px; }
+  .btn.account:has(.avatar) .account-name { display: none; }
   .run { order: 2; width: 100%; margin-top: -8px; }
   .tabs { order: 3; width: 100%; }
   .day { grid-template-columns: 52px minmax(0, 1fr); }

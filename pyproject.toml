@@ -15,7 +15,6 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-web = ["fastapi>=0.110", "uvicorn>=0.29"]
 browser = ["playwright>=1.48"]
 dev = ["pytest>=8.2", "ruff>=0.5"]
 

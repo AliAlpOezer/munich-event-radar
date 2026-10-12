@@ -85,6 +85,21 @@ How step 2 landed (2026-10-12), where it differs from the table:
 | `IntakeService` takes its HTTP client, address guard and renderer as arguments | Tests pass stand-ins instead of monkeypatching modules |
 | `event-radar run` is now `event-radar harvest` | The command names the job it starts, as the workflow does |
 
+How step 3 landed (2026-10-12):
+
+| Change | Why |
+|---|---|
+| The page is `site/`, plain ES modules, one per concern (`api`, `board`, `timeline`, `drawer`, `intakes`, `account`, ...), with no build step; supabase-js 2.117.2 is vendored byte-exact from the npm tarball | An esbuild bundle of supabase-js: a build step for a file the tarball already ships |
+| Login uses the PKCE flow, which returns `?code=` | The implicit flow returns tokens in the hash, which the page uses for its routes |
+| `api.board_status()` tells anyone when the board last harvested and gives a version the page polls each minute while visible; run detail stays admin-only | Polling `run`: admin-only by ADR 0005 D3. A timestamp alone: stamps have second precision and missed changes |
+| `theme-init.js` is a file, so the CSP allows scripts from `'self'` only | An inline script and a CSP hash that changes with every edit |
+| `facts.js` and `time.js` have node tests in `tests/site/`, run in `test.yml` on Node 24 | A browser test runner in CI: the rest is checked end to end against `tools/devsite.py` |
+| `tools/devsite.py` stands in for Supabase locally (ADR 0005, "Local stand-in") | `supabase start`: its containers do not fit in 4 GB |
+| FastAPI, `web/`, the `web` extra and `UserStatus` are gone | Nothing else used them |
+
+Not done in step 3, each waiting for Alp: deploying to Pages (privacy and Impressum, ADR 0004
+step 5, come first) and a real Google or GitHub OAuth login.
+
 ## Open questions
 
 1. The data to import: the 2026-10-08 laptop copy, or a fresh copy if the box comes back

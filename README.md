@@ -35,6 +35,20 @@ The store is Postgres (ADR 0004). Tests need a local server and never read
 | Create the test database once | `psql -U postgres -h localhost -c "create database radar_test"` |
 | Run the tests | `.venv/Scripts/python -m pytest` (override with `RADAR_TEST_DATABASE_URL`) |
 | Move a SQLite store into Postgres | `RADAR_DATABASE_URL=... event-radar import-sqlite path/to/radar.db` |
+| Test the page's pure modules | `node --test "tests/site/*.test.mjs"` (Node 24, no npm) |
+| Run the page locally | `scoop install postgrest`, then `python tools/devsite.py` and open http://127.0.0.1:8010/ |
+| Make a local login an admin | `RADAR_DATABASE_URL=postgresql://postgres@localhost/radar_dev event-radar grant-admin EMAIL` |
+
+## The page
+
+`site/` is the whole front end, published as is by Cloudflare Pages: plain ES modules in
+`site/js/`, supabase-js vendored in `site/vendor/`, response headers in `site/_headers`. It
+reads and writes only through the `api` schema (ADR 0005). `site/config.js` holds the
+project URL and publishable key, which are public by design.
+
+`tools/devsite.py` stands in for Supabase on this machine: PostgREST on the `api` schema,
+a fake `/auth/v1` that logs in any email through the same PKCE flow, and the site with its
+headers. It refuses any database that is not local.
 
 ## Running (ADR 0006)
 
@@ -45,7 +59,7 @@ Every job runs on GitHub Actions; no machine of ours has to be on.
 | `harvest` | every 2 h, 05:17-21:17 UTC | `event-radar seed`, then `harvest`: fetch, extract with OpenRouter, judge |
 | `browse` | Sundays 03:17 UTC | `event-radar browse`: renders JavaScript-only sources with Chromium |
 | `intake` | dispatched by Postgres when an intake is queued, and hourly | `event-radar intakes`: works the queue, then exits |
-| `test` | every push and pull request | ruff and pytest against a Postgres 17 service |
+| `test` | every push and pull request | ruff and pytest against a Postgres 17 service, and the page's node tests |
 
 One-time setup:
 

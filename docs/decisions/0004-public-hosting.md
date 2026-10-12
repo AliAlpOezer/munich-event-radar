@@ -1,6 +1,8 @@
 # ADR 0004: Public hosting on Supabase and Cloudflare Pages
 
-**Status:** DECIDED, being built (steps 1-3 done locally, shaped by ADR 0005; not deployed)
+**Status:** DECIDED, being built (steps 1-3 done locally, shaped by ADR 0005; step 4's page
+built and checked against a local stand-in on 2026-10-12, ADR 0006; nothing deployed, and
+the deploy waits for step 5)
 **Date:** 2026-10-09
 **Inputs:** Alp's request of 2026-10-09 (host the app for common use, Supabase plus
 Cloudflare, pay for nothing, ask before changing any feature) and Alp's four choices of the

@@ -6,13 +6,11 @@ import uuid
 from contextlib import contextmanager
 
 import pytest
-from fastapi.testclient import TestClient
 from psycopg import errors, sql
 
 from conftest import TEST_DSN
-from event_radar.model import JudgedEvent, UserStatus, Verdict
+from event_radar.model import JudgedEvent, Verdict
 from event_radar.store import Store
-from event_radar.web import create_app
 
 PRIVATE = (
     "budget",
@@ -105,17 +103,40 @@ def test_anyone_reads_the_board(store, board):
     assert me == {"user_id": None, "admin": False}
 
 
-def test_the_events_view_matches_the_web_app(store, board):
-    old = TestClient(create_app(store)).get("/api/events").json()["events"]
+def test_the_events_view_derives_covers_organisers_and_staleness(store, board):
     with api(store) as db:
-        new = {r["key"]: r for r in db.execute("SELECT * FROM events").fetchall()}
-    assert len(old) == len(new)
-    for event in old:
-        row = new[event["key"]]
-        for name in ("tier", "drop_reason", "reasons", "merge_basis", "user_status", "stale"):
-            assert row[name] == event[name], name
-        for name in ("fields", "cover", "sources", "organiser_ids"):
-            assert row[name] == event[name], name
+        rows = {r["key"]: r for r in db.execute("SELECT * FROM events").fetchall()}
+    covers = {title: rows[key]["cover"] for title, key in board.items()}
+    # The image on three events is the site's share image, not a cover.
+    assert covers == {"E0": "https://a.org/own.png", "E1": None, "E2": None, "E3": None}
+    [org] = store.organisers.all()
+    assert all(r["organiser_ids"] == [org["id"]] for r in rows.values())
+    assert not any(r["stale"] for r in rows.values())
+    with store.tx() as db:
+        db.execute(
+            "UPDATE event SET updated_at = updated_at - interval '1 day' WHERE key = %s",
+            (board["E0"],),
+        )
+    with api(store) as db:
+        stale = db.execute("SELECT key FROM events WHERE stale").fetchall()
+    assert stale == [{"key": board["E0"]}]
+
+
+def test_anyone_sees_when_the_board_changed(store, board):
+    def status():
+        with api(store) as db:
+            return db.execute("SELECT board_status()").fetchone()["board_status"]
+
+    before = status()
+    assert before["harvested_at"]
+    run = store.runs.start()
+    started = status()
+    store.runs.finish(run, "failed", {})
+    failed = status()
+    assert len({before["version"], started["version"], failed["version"]}) == 3
+    assert failed["harvested_at"] == before["harvested_at"]
+    store.organisers.add("CDTM", "cdtm.com", "manual")
+    assert status()["version"] != failed["version"]
 
 
 def test_private_tables_and_writes_are_closed(store, board, users):
@@ -243,20 +264,28 @@ def test_a_suggestion_waits_for_an_admin(store, users):
     assert store.intakes.get(own["suggest_organisation"])["state"] == "queued"
 
 
+def _unclaimed(store, key, status):
+    """A status from before logins existed, as the SQLite import brings them (ADR 0005 D7)."""
+    with store.tx() as db:
+        db.execute(
+            "INSERT INTO user_state_unclaimed (event_key, status, updated_at)"
+            " VALUES (%s, %s, now())",
+            (key, status),
+        )
+
+
 def test_the_owner_claims_the_statuses_kept_before_logins(store, board, users):
     key = board["E0"]
-    store.users.set_owner_status(key, UserStatus.APPLIED)
+    _unclaimed(store, key, "applied")
     owner = users("alp@example.org")
     assert _status(store, owner, key) == "none"
     with pytest.raises(LookupError):
         store.users.grant_admin("nobody@example.org")
     assert store.users.grant_admin("ALP@example.org", owner=True)["claimed"] == 1
     assert _status(store, owner, key) == "applied"
-    store.users.set_owner_status(key, UserStatus.REGISTERED)
-    assert _status(store, owner, key) == "registered"
+    with api(store, owner) as db:
+        db.execute("SELECT set_status(%s, 'registered')", (key,))
     assert {e["key"]: e["user_status"] for e in store.events.all()}[key] == "registered"
-    with pytest.raises(ValueError, match="cannot become"):
-        store.users.set_owner_status(key, UserStatus.SKIPPED)
     users("second@example.org")
     with pytest.raises(ValueError, match="already an owner"):
         store.users.grant_admin("second@example.org", owner=True)
@@ -279,7 +308,7 @@ def test_a_merge_keeps_each_users_status(store, users):
     with api(store, bob) as db:
         db.execute("SELECT set_status(%s, 'applied')", (keys["A"],))
         db.execute("SELECT set_status(%s, 'skipped')", (keys["B"],))
-    store.users.set_owner_status(keys["B"], UserStatus.REGISTERED)
+    _unclaimed(store, keys["B"], "registered")
     counts = store.events.save(
         [JudgedEvent({"url:a", "url:b"}, {"title": {"value": "A"}}, "url", _verdict(), [])]
     )

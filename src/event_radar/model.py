@@ -20,13 +20,6 @@ class Tier(StrEnum):
     C = "C"
 
 
-class UserStatus(StrEnum):
-    NONE = "none"
-    APPLIED = "applied"
-    REGISTERED = "registered"
-    SKIPPED = "skipped"
-
-
 class OrganiserStatus(StrEnum):
     """An organiser in the registry. A removed one is a tombstone that is never re-added."""
 

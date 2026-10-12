@@ -19,7 +19,3 @@ class Runs(Repository):
                 "UPDATE run SET finished_at = %s, outcome = %s, summary = %s WHERE id = %s",
                 (now_iso(), outcome, Jsonb(summary), run_id),
             )
-
-    def recent(self, limit: int) -> list[dict]:
-        with self.database.tx() as db:
-            return db.execute("SELECT * FROM run ORDER BY id DESC LIMIT %s", (limit,)).fetchall()

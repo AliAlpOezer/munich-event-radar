@@ -22,10 +22,6 @@ class Intakes(Repository):
         with self.database.tx() as db:
             return db.execute("SELECT * FROM intake WHERE id = %s", (intake_id,)).fetchone()
 
-    def recent(self, limit: int) -> list[dict]:
-        with self.database.tx() as db:
-            return db.execute("SELECT * FROM intake ORDER BY id DESC LIMIT %s", (limit,)).fetchall()
-
     def update(self, intake_id: int, **cols) -> None:
         cols = {**cols, "updated_at": now_iso()}
         for name in ("profile", "result"):

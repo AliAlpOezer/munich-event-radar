@@ -3,7 +3,7 @@
 -- search_path = <api schema>, <store schema>, pg_temp, so objects land in the api schema and
 -- functions pin that path.
 -- Reads are security-invoker views (RLS decides); writes are definer functions that check
--- the caller themselves. Keep the events view equal to FastAPI's /api/events until step 4.
+-- the caller themselves.
 
 CREATE VIEW events WITH (security_invoker = true) AS
 SELECT
@@ -63,6 +63,20 @@ FROM intake;
 CREATE FUNCTION me() RETURNS jsonb
 LANGUAGE sql STABLE SET search_path FROM CURRENT AS $$
     SELECT jsonb_build_object('user_id', auth.uid(), 'admin', is_admin())
+$$;
+
+-- What the page polls to know when to reload, and when the board was last harvested; the
+-- run table itself is for admins only. The version moves when a run starts (a new id) or
+-- ends (one more finished run), and when an intake adds events or organisers.
+CREATE FUNCTION board_status() RETURNS jsonb
+LANGUAGE sql STABLE SECURITY DEFINER SET search_path FROM CURRENT AS $$
+    SELECT jsonb_build_object(
+        'harvested_at', (SELECT max(finished_at) FROM run WHERE outcome = 'ok'),
+        'version', concat_ws('/',
+            (SELECT concat_ws('/', max(id), count(finished_at)) FROM run),
+            (SELECT concat_ws('/', count(*), max(updated_at)) FROM event),
+            (SELECT count(*) FROM organiser))
+    )
 $$;
 
 CREATE FUNCTION set_status(event_key text, status text) RETURNS text
@@ -170,6 +184,6 @@ END
 $$;
 GRANT SELECT ON events, organisers TO anon, authenticated;
 GRANT SELECT ON runs, intakes TO authenticated;
-GRANT EXECUTE ON FUNCTION me() TO anon, authenticated;
+GRANT EXECUTE ON FUNCTION me(), board_status() TO anon, authenticated;
 GRANT EXECUTE ON FUNCTION set_status(text, text), suggest_organisation(text, text, text),
     decide_intake(bigint, boolean) TO authenticated;

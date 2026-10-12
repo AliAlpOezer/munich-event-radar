@@ -48,13 +48,17 @@ may do, and how this is tested on a 4 GB laptop without Supabase.
 
 The web app no longer runs a worker thread; it only submits and decides. That NOTIFY reaches
 a client through the session pooler is UNVERIFIED until the staging project exists.
-- **FastAPI retires** with step 4. Until then it keeps working for the owner over the
-  Tailscale URL. Its `/api/events` derivations (cover de-duplication, staleness, organisers)
-  are duplicated by `api.events` for that time, with a test holding them equal.
+- **FastAPI retired** on 2026-10-12 (ADR 0006 step 3). `api.events` alone now derives
+  covers, staleness and organisers, and `tests/test_access.py` tests those directly instead
+  of holding them equal to `/api/events`.
 - **supabase-js is vendored** into the page (no third-party CDN, the same reasoning as the
   Google Fonts ruling in ADR 0004).
 - **Local stand-in** for the Data API: PostgREST from Scoop behind a small dev proxy, as
-  `authenticator`, exposing `api` only.
+  `authenticator`, exposing `api` only. Built as `tools/devsite.py` (2026-10-12): the proxy also
+  plays Supabase's gateway (requires the `apikey`; a bearer that is only the key runs as
+  `anon`) and Supabase Auth (the PKCE flow supabase-js runs, with an email form as the
+  "provider", minting HS256 tokens PostgREST checks). PostgREST runs without its `LISTEN`
+  channel, which hung its start on Windows about 4 times in 10.
 
 ## Sources (checked 2026-10-12)
 
