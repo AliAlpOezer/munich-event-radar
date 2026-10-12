@@ -108,8 +108,13 @@ How step 4 landed (2026-10-12):
 | Proof: fresh databases built from the old four files and from the squash give the same `pg_dump --schema-only` of `radar` and `api` (grants, policies, triggers included), except that Postgres 18 kept the NOT NULL constraint names `user_state_*_not_null` on the renamed `user_state_unclaimed`; the squash gives it its own. Postgres 17, as hosted, names no NOT NULL constraints | Trusting a read-through of the SQL |
 | Page bodies are not imported: none of the 136 pending LLM jobs in the 2026-10-08 copy has its body on disk, and `Extraction.pending` skips a job without a body until a fetch stores one | Importing the 14 bodies in `data/snapshots/`: no pending job reads them |
 
-The hosted rebuild (drop `radar` and `api`, migrate, `import-sqlite data/radar.db`) waits:
-Claude Code's auto mode refused the `DROP SCHEMA` on the hosted database, so Alp runs it.
+The hosted rebuild ran on 2026-10-12 (Alp ran the drop and import, since Claude Code's auto
+mode refused a `DROP SCHEMA` on the hosted database): migration `0001_initial` only, 18
+tables all with RLS, pg_net 0.20.4 enabled by the shim, and the 2026-10-08 copy imported (22
+organisers, 174 sources, 164 events, 2 intakes, 1 unclaimed status, 3 runs; identity
+sequences past their max ids; no dispatch sent). Over HTTP with the publishable key, `events`
+counts 164 and `organisers` 22, `runs` is 401, and `rpc/board_status` reports the
+2026-10-08 harvest.
 
 ## Open questions
 
