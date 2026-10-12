@@ -100,6 +100,17 @@ How step 3 landed (2026-10-12):
 Not done in step 3, each waiting for Alp: deploying to Pages (privacy and Impressum, ADR 0004
 step 5, come first) and a real Google or GitHub OAuth login.
 
+How step 4 landed (2026-10-12):
+
+| Change | Why |
+|---|---|
+| `0001_initial.sql` now builds the final schema directly; 0002-0004 are gone. The stem stays `0001_initial`, so a local database already at 0004 counts as migrated | A new stem: every existing local database would rerun it over tables that exist |
+| Proof: fresh databases built from the old four files and from the squash give the same `pg_dump --schema-only` of `radar` and `api` (grants, policies, triggers included), except that Postgres 18 kept the NOT NULL constraint names `user_state_*_not_null` on the renamed `user_state_unclaimed`; the squash gives it its own. Postgres 17, as hosted, names no NOT NULL constraints | Trusting a read-through of the SQL |
+| Page bodies are not imported: none of the 136 pending LLM jobs in the 2026-10-08 copy has its body on disk, and `Extraction.pending` skips a job without a body until a fetch stores one | Importing the 14 bodies in `data/snapshots/`: no pending job reads them |
+
+The hosted rebuild (drop `radar` and `api`, migrate, `import-sqlite data/radar.db`) waits:
+Claude Code's auto mode refused the `DROP SCHEMA` on the hosted database, so Alp runs it.
+
 ## Open questions
 
 1. The data to import: the 2026-10-08 laptop copy, or a fresh copy if the box comes back
