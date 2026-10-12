@@ -3,8 +3,8 @@
 import ipaddress
 import re
 import socket
-import threading
 from collections import Counter
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import date
 from urllib.parse import urljoin, urlsplit
@@ -32,6 +32,8 @@ from .snapshots import SnapshotStore
 from .store import Store
 
 MAX_CANDIDATES = 6
+# The worker's fallback when a notification is lost (ADR 0005).
+POLL_S = 30.0
 MAX_FOLLOW = 30
 SHELL_TEXT = 300
 SHELL_LINKS = 5
@@ -242,8 +244,6 @@ class IntakeService:
         self.store = store
         self.snapshots = SnapshotStore(settings.snapshot_dir)
         self.min_interval_s = 5.0
-        self._wake = threading.Event()
-        self._thread: threading.Thread | None = None
 
     # API side
     def submit(self, url: str, events_url: str | None, name: str | None) -> int:
@@ -252,9 +252,7 @@ class IntakeService:
         known = self.store.organiser_by_domain(organiser_domain(url))
         if known:
             raise DuplicateOrganiser(known["id"], known["name"], known["status"])
-        intake_id = self.store.create_intake(url, events_url, (name or "").strip() or None)
-        self._wake.set()
-        return intake_id
+        return self.store.create_intake(url, events_url, (name or "").strip() or None)
 
     def decide(self, intake_id: int, approve: bool) -> None:
         row = self.store.intake(intake_id)
@@ -265,27 +263,21 @@ class IntakeService:
         if approve:
             self.store.log_intake(intake_id, "review", "Approved by you.", "ok")
             self.store.update_intake(intake_id, state="queued", approved=True)
-            self._wake.set()
         else:
             self.store.log_intake(intake_id, "review", "Rejected by you.", "warn")
             self.store.update_intake(intake_id, state="rejected", approved=False)
 
     # Worker side
-    def start(self) -> None:
-        if self._thread:
-            return
-        self.store.requeue_interrupted_intakes()
-        self._thread = threading.Thread(target=self._loop, name="intake", daemon=True)
-        self._thread.start()
-
-    def _loop(self) -> None:
-        while True:
-            row = self.store.next_intake()
-            if row is None:
-                self._wake.wait(30)
-                self._wake.clear()
-                continue
-            self.process(row["id"])
+    def serve(self, poll_s: float = POLL_S, stop: Callable[[], bool] = lambda: False) -> None:
+        """Work queued intakes until `stop()`: woken by NOTIFY, with a poll as the fallback,
+        so a lost notification only delays work. One worker per store; crash-only, since an
+        intake cut off mid-step is queued again by the next start."""
+        with self.store.intake_listener() as wait:
+            self.store.requeue_interrupted_intakes()
+            while not stop():
+                while (row := self.store.next_intake()) is not None:
+                    self.process(row["id"])
+                wait(poll_s)
 
     def process(self, intake_id: int) -> None:
         log = self.store.log_intake

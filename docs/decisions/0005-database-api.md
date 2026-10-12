@@ -1,6 +1,6 @@
 # ADR 0005: The database is the API
 
-**Status:** DECIDED, being built (step 2 of ADR 0004)
+**Status:** DECIDED, being built (steps 2 and 3 of ADR 0004)
 **Date:** 2026-10-12
 **Inputs:** ADR 0004 (public hosting: Supabase, Cloudflare Pages, no API server, RLS on
 every table), its build steps 2-5, and Alp's go of 2026-10-09 ("lets start with the general
@@ -33,7 +33,20 @@ may do, and how this is tested on a 4 GB laptop without Supabase.
 
 - **Intake worker** (step 3, answers ADR 0004 open question 1): its own process on the box,
   woken by `LISTEN`/`NOTIFY` on a session connection, with a 30 s poll as the fallback, so a
-  lost notification only delays work.
+  lost notification only delays work. Built 2026-10-12 as `event-radar intake-worker`
+  (`event-radar-intake.service`); details below.
+
+## Intake worker as built (step 3, 2026-10-12)
+
+| # | Decision | Rejected, and why |
+|---|---|---|
+| 11 | Triggers on `intake` call `pg_notify('<schema>.intake', id)` whenever a row becomes `queued`, by insert or update; the payload is a hint, the worker always reads the table | NOTIFY from the Python callers: misses intakes queued by `decide_intake` in SQL, and the old web app would need it too |
+| 12 | One worker per store, enforced by a session advisory lock taken on the listening connection after `LISTEN`; a second worker exits (`WorkerBusy`) and systemd retries it | `FOR UPDATE SKIP LOCKED` claims for several workers: the box runs one, and requeueing cut-off work at start is only safe when no other worker is mid-intake |
+| 13 | Crash-only: a lost session makes the wait raise, the process exits, systemd restarts it (`Restart=always`), and the start requeues intakes left in `checking`..`harvesting`. TCP keepalives catch a silent drop | A reconnect loop inside the process: a second code path for the same recovery, and the lock could be lost to another worker while the old one still works |
+| 14 | The connection goes through Supabase's session pooler (IPv4, keeps session state, so `LISTEN` works); never the transaction pooler (port 6543), which drops `LISTEN` | The direct connection: IPv6 only on the free plan (https://supabase.com/docs/guides/database/connecting-to-postgres, checked 2026-10-12) |
+
+The web app no longer runs a worker thread; it only submits and decides. That NOTIFY reaches
+a client through the session pooler is UNVERIFIED until the staging project exists.
 - **FastAPI retires** with step 4. Until then it keeps working for the owner over the
   Tailscale URL. Its `/api/events` derivations (cover de-duplication, staleness, organisers)
   are duplicated by `api.events` for that time, with a test holding them equal.

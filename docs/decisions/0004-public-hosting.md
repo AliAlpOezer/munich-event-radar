@@ -1,6 +1,6 @@
 # ADR 0004: Public hosting on Supabase and Cloudflare Pages
 
-**Status:** DECIDED, being built (step 1 done; step 2 shaped by ADR 0005)
+**Status:** DECIDED, being built (steps 1-3 done locally, shaped by ADR 0005; not deployed)
 **Date:** 2026-10-09
 **Inputs:** Alp's request of 2026-10-09 (host the app for common use, Supabase plus
 Cloudflare, pay for nothing, ask before changing any feature) and Alp's four choices of the
@@ -21,7 +21,7 @@ fetched. Nothing costs money.
 | Store | Supabase Postgres is the only store; SQLite goes | SQLite on the box plus a published copy: user status and intakes would sync back the other way, two truths |
 | Harvester host | Stays on the box (timer, Playwright, snapshots on disk) | GitHub Actions: the repo is private (minute cap), snapshots would need Supabase Storage (1 GB) and the browser unit a runner image |
 | Login | Google and GitHub OAuth through Supabase Auth | Email magic link: Supabase's built-in mail reaches only project team members, 2 per hour; own SMTP usually needs a paid domain |
-| Page host | Cloudflare Pages, static, on `*.pages.dev` | FastAPI on Workers: 10 ms CPU per request on the free plan. Cloudflare Tunnel to the box: the site would go down with the box (offline about 2026-08-27 to 2026-10-07). A custom domain: costs money |
+| Page host | Cloudflare Pages, static, on `munichai.pages.dev` (name chosen 2026-10-12) | FastAPI on Workers: 10 ms CPU per request on the free plan. Cloudflare Tunnel to the box: the site would go down with the box (offline about 2026-08-27 to 2026-10-07). A custom domain: costs money |
 
 ## Shape
 

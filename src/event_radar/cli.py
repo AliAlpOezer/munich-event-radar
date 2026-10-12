@@ -55,6 +55,18 @@ def _board(settings: config.Settings) -> None:
         print(" | ".join(str(c) if c is not None else "-" for c in row))
 
 
+def _intake_worker(settings: config.Settings) -> None:
+    from .intake import IntakeService
+    from .store import WorkerBusy
+
+    store = Store(settings.database_url)
+    print(f"intake worker starting on schema {store.schema}", flush=True)
+    try:
+        IntakeService(settings, store).serve()
+    except WorkerBusy as exc:
+        raise SystemExit(str(exc)) from exc
+
+
 COMMANDS = {
     "freeze": _freeze,
     "replay": _replay,
@@ -62,6 +74,7 @@ COMMANDS = {
     "run": lambda s: print(json.dumps(runner.run(s))),
     "browse": lambda s: print(json.dumps(runner.browse(s))),
     "board": _board,
+    "intake-worker": _intake_worker,
 }
 
 

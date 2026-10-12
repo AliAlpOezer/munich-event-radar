@@ -1,11 +1,12 @@
 import hashlib
 import uuid
 import weakref
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from datetime import UTC, datetime
 from pathlib import Path
 
+import psycopg
 from psycopg import Connection, errors, sql
 from psycopg.rows import dict_row
 from psycopg.types.json import Jsonb
@@ -22,6 +23,10 @@ OWNER_STATE = (
     " WHERE user_id = (SELECT user_id FROM admin WHERE role = 'owner')"
     " UNION ALL SELECT event_key, status FROM user_state_unclaimed"
 )
+
+
+class WorkerBusy(Exception):
+    """Another intake worker already serves this store."""
 
 
 def now_iso() -> str:
@@ -91,6 +96,7 @@ class Store:
     def __init__(self, dsn: str | None, schema: str = "radar", api: str = "api"):
         if not dsn:
             raise ValueError("RADAR_DATABASE_URL is not set")
+        self.dsn = dsn
         self.schema = schema
         self.api = api
 
@@ -558,6 +564,33 @@ class Store:
             return db.execute(
                 "SELECT * FROM intake WHERE state = 'queued' ORDER BY id LIMIT 1"
             ).fetchone()
+
+    @contextmanager
+    def intake_listener(self) -> Iterator[Callable[[float], None]]:
+        """The intake worker's own session (ADR 0005): it holds the one-worker lock and
+        LISTENs for queued intakes. Yields `wait(seconds)`, which returns on a notification
+        or when the time is up, and raises once the session is gone (keepalives catch a
+        silent drop), so the worker exits and systemd restarts it instead of waiting deaf."""
+        channel = f"{self.schema}.intake"
+        with psycopg.connect(
+            self.dsn,
+            autocommit=True,
+            application_name="event-radar intake worker",
+            keepalives=1,
+            keepalives_idle=30,
+            keepalives_interval=10,
+        ) as db:
+            # LISTEN first: whoever holds the lock is already listening.
+            db.execute(sql.SQL("LISTEN {}").format(sql.Identifier(channel)))
+            locked = db.execute("SELECT pg_try_advisory_lock(hashtext(%s))", (channel,))
+            if not locked.fetchone()[0]:
+                raise WorkerBusy(f"another intake worker serves {self.schema}")
+
+            def wait(seconds: float) -> None:
+                for _ in db.notifies(timeout=seconds, stop_after=1):
+                    pass
+
+            yield wait
 
     def requeue_interrupted_intakes(self) -> int:
         with self.tx() as db:

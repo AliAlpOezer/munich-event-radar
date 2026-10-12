@@ -19,10 +19,13 @@ echo "RADAR_WEB_HOST=$tailnet_ip" >> /etc/event-radar/env
 [ -d .venv ] || python3 -m venv .venv
 .venv/bin/pip install -q --upgrade pip
 .venv/bin/pip install -q -e ".[web]"
-install -m 644 deploy/systemd/event-radar.service deploy/systemd/event-radar.timer deploy/systemd/event-radar-web.service /etc/systemd/system/
+install -m 644 deploy/systemd/event-radar.service deploy/systemd/event-radar.timer \
+  deploy/systemd/event-radar-web.service deploy/systemd/event-radar-intake.service /etc/systemd/system/
 systemctl daemon-reload
 runuser -u eventradar -- env $(grep -v '^#' /etc/event-radar/env | xargs) .venv/bin/event-radar seed
 systemctl enable --now event-radar.timer
+systemctl enable event-radar-intake.service
+systemctl restart event-radar-intake.service
 systemctl enable event-radar-web.service
 systemctl restart event-radar-web.service
 echo "Web app: http://$(tailscale status --self --json | python3 -c 'import json,sys; print(json.load(sys.stdin)["Self"]["DNSName"].rstrip("."))'):8010/"
