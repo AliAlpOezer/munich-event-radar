@@ -22,10 +22,12 @@ REPO = Path(__file__).resolve().parents[1]
 NOW = datetime.fromisoformat("2026-10-07T12:00:00+02:00")
 
 
-def fixture(url: str) -> tuple[str | None, bytes]:
-    manifest = json.loads((REPO / "eval/fixtures/manifest.json").read_text())
-    entry = manifest[url]
-    return entry.get("content_type"), (REPO / "eval/fixtures" / entry["file"]).read_bytes()
+LUMA = "https://luma.com/example-ai-night"
+CMS = "https://www.example-academy.org/en/events/view/trustworthy-machine-learning"
+
+
+def page(name: str) -> bytes:
+    return (REPO / "tests" / "fixtures" / name).read_bytes()
 
 
 def obs(id, url, cls, keys=(), **fields):
@@ -59,28 +61,25 @@ def test_platform_key(url, key):
 
 
 def test_luma_page_carries_registration_state():
-    content_type, body = fixture("https://luma.com/4k19ckbb")
-    result = parse("https://luma.com/4k19ckbb", content_type, body, Kind.EVENT_PAGE)
+    result = parse(LUMA, "text/html", page("luma-event.html"), Kind.EVENT_PAGE)
     fields = {k: v.value for k, v in result.events[0].fields.items()}
     assert fields["reg_mode"] == "approval" and fields["spots_left"] == 14
-    assert "luma:evt-9NpVAZn7j9dZQWA" in result.events[0].platform_keys
+    assert fields["reg_closes_at"] == "2026-11-04T22:59:00.000Z"
+    assert "luma:evt-example1" in result.events[0].platform_keys
     assert not result.needs_llm
 
 
 def test_cms_page_without_registration_goes_to_llm():
-    url = "https://badw.de/en/events/view/a-cryptographic-perspective-on-machine-learning-trustworthiness-challenges"
-    content_type, body = fixture(url)
-    assert parse(url, content_type, body, Kind.EVENT_PAGE).needs_llm
+    assert parse(CMS, "text/html", page("cms-event.html"), Kind.EVENT_PAGE).needs_llm
 
 
 def test_event_pages_keep_a_cover_image():
-    content_type, body = fixture("https://luma.com/4k19ckbb")
-    luma = parse("https://luma.com/4k19ckbb", content_type, body, Kind.EVENT_PAGE)
+    luma = parse(LUMA, "text/html", page("luma-event.html"), Kind.EVENT_PAGE)
     assert luma.events[0].fields["image"].value.startswith("https://images.lumacdn.com/")
-    url = "https://badw.de/en/events/view/a-cryptographic-perspective-on-machine-learning-trustworthiness-challenges"
-    content_type, body = fixture(url)
-    badw = parse(url, content_type, body, Kind.EVENT_PAGE)
-    assert badw.events[0].fields["image"].value.startswith("https://badw.de/fileadmin/")
+    cms = parse(CMS, "text/html", page("cms-event.html"), Kind.EVENT_PAGE)
+    assert cms.events[0].fields["image"].value == (
+        "https://www.example-academy.org/fileadmin/events/trustworthy-ml.jpg"
+    )
 
 
 def test_listing_pages_do_not_lend_their_share_image_to_events():
