@@ -1,8 +1,6 @@
-research/*.pdf
-research/*.html
-research/raw/
 .DS_Store
 data/
+eval/fixtures/
 .venv/
 __pycache__/
 *.pyc

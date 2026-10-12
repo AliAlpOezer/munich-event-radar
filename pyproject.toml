@@ -37,8 +37,6 @@ addopts = "-q"
 line-length = 100
 target-version = "py312"
 src = ["src", "tests"]
-# research/ holds raw, frozen one-off scripts; they are evidence, not code to maintain.
-extend-exclude = ["research"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B"]

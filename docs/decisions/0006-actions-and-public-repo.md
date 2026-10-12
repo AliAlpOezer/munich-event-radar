@@ -11,8 +11,9 @@ third-party page copies private; process an approved intake instantly). Amends A
 ## What this is for
 
 The radar keeps running when no machine of Alp's is on. The box was offline from about
-2026-08-27 to 2026-10-07 and again on 2026-10-12. Since ADR 0004 everything durable lives off the box (Supabase, Cloudflare
-Pages, OpenRouter), so the box is only a scheduler with a disk. The LLM never ran there:
+2026-08-27 to 2026-10-07 and again on 2026-10-12. Since ADR 0004 everything durable lives
+off the box (Supabase, Cloudflare Pages, OpenRouter), so the box is only a scheduler with
+a disk. The LLM never ran there:
 extraction has always called OpenRouter over HTTPS (ADR 0002 D8).
 
 ## Decisions
@@ -115,6 +116,19 @@ organisers, 174 sources, 164 events, 2 intakes, 1 unclaimed status, 3 runs; iden
 sequences past their max ids; no dispatch sent). Over HTTP with the publishable key, `events`
 counts 164 and `organisers` 22, `runs` is 401, and `rpc/board_status` reports the
 2026-10-08 harvest.
+
+How step 5 landed (2026-10-12):
+
+| Change | Why |
+|---|---|
+| Hand-written pages replace the CDTM, Luma and BAdW copies in `tests/` | D6: the public tree holds no third-party page |
+| `event-radar replay` and `freeze` read `RADAR_FIXTURES_DIR` (default `eval/fixtures`, ignored here) | D7 |
+| Before the rewrite, every branch went to `munich-event-radar-records` (private, Actions off), which from then on holds only the record | D6 |
+| `git filter-repo` dropped `radar/`, `timeline/`, `research/`, `docs/context/`, `eval/fixtures/`, the CDTM pages and ADR 0001 from every commit; commits left empty fell away (56 on `hosting-plan` to 30) | D6 |
+| The same pass rewrote text in every commit and message: the box's host name became "the box", and the other project on it, with what it holds, "another project". The rules file stays in the records repository, since it names what it removes | A host name and what else runs beside it map a target; the design reads the same without them |
+| ADR 0001 (the split from a study-planning repository) stays in the records repository | It is about personal repositories, not the radar |
+| Only `main` is published; `hosting-plan` and `frontend-colour` remain in the records repository | Both are merged into `main` by the rewrite |
+| The public repository is a new one under the old name; the old repository is renamed `munich-event-radar-old` and stays private (Alp, 2026-10-12). This amends D6, which kept this repository | GitHub keeps `refs/pull/1/head` and `refs/pull/2/head` on the old history, whose tree holds the record and the page copies; a force-push does not move them, and only GitHub Support can remove them |
 
 ## Open questions
 

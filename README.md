@@ -1,27 +1,27 @@
 # Munich event radar
 
 Finds, ranks and tracks the AI/ML, startup and tech events, organisations, conferences and
-programmes in Munich worth Alp's time, with their registration windows. Split out of
-`munich-masters-career` on 2026-10-07 (`docs/decisions/0001-separate-repo.md`).
+programmes in Munich, with their registration windows. A harvester fetches organiser pages,
+ticket platforms and calendars, parses them (structured data first, an LLM only where a
+page has no registration fields), merges duplicates and ranks each event A, B or C against
+`profile.yaml`. A static page shows the board; logging in adds a personal status per event
+and lets you suggest an organisation.
 
 ## Layout
 
 | Path | Holds |
 |---|---|
-| `radar/event-radar.md` | Organisers that matter and upcoming events, ranked A/B/C, with registration |
-| `radar/clubs.md` | Munich AI and entrepreneurship map: clubs, joint institutions, programmes |
-| `radar/fairs.md` | Job fairs and recruiting events |
-| `timeline/calendar.md` | Every event date and registration action |
-| `research/` | Raw sweeps, never cited directly |
-| `docs/context/` | Handoffs: `event-tracking.md`, and the agent design in `wayfinder/event-radar/` |
-| `docs/decisions/` | ADRs |
+| `src/event_radar/` | The harvester: `fetch`, `render` (Chromium), `parse`, `extract` (LLM), `resolve`, `judge`, `intake`, `store` (Postgres) |
+| `site/` | The page, served as is by Cloudflare Pages |
+| `seed/organisers.yaml` | The organisers tracked from the start |
+| `profile.yaml` | What counts as A, B or C |
+| `eval/golden.yaml` | The golden set the judge is scored against |
+| `tests/` | pytest on hand-written fixtures, and node tests for the page's pure modules |
+| `tools/devsite.py` | A local stand-in for Supabase |
+| `docs/decisions/` | ADRs, from the architecture (0002) to hosting (0004-0006) |
 
-## Status (2026-10-07)
-
-- Curated radar and calendar moved here with their git history.
-- Next: the event-radar agent and app. Requirements: `docs/context/wayfinder/event-radar/map.md`
-  (wayfinding complete). Architecture: `docs/decisions/0002-event-radar-architecture.md`.
-  Then UI design, then implementation.
+The golden eval replays frozen copies of third-party pages. They are not published here:
+`event-radar replay` reads them from `RADAR_FIXTURES_DIR` (ADR 0006 D7).
 
 ## Development
 
@@ -38,6 +38,7 @@ The store is Postgres (ADR 0004). Tests need a local server and never read
 | Test the page's pure modules | `node --test "tests/site/*.test.mjs"` (Node 24, no npm) |
 | Run the page locally | `scoop install postgrest`, then `python tools/devsite.py` and open http://127.0.0.1:8010/ |
 | Make a local login an admin | `RADAR_DATABASE_URL=postgresql://postgres@localhost/radar_dev event-radar grant-admin EMAIL` |
+| Score the golden set | `RADAR_FIXTURES_DIR=<frozen pages> event-radar replay` |
 
 ## The page
 

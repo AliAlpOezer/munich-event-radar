@@ -2,7 +2,7 @@
 
 **Status:** DECIDED for design; implementation has not started
 **Date:** 2026-10-07
-**Inputs:** the wayfinder map `../context/wayfinder/event-radar/map.md` (Q1-Q9, R1-R4).
+**Inputs:** the wayfinder map (Q1-Q9, R1-R4), kept in the private records repository.
 Those decisions are cited here, not re-argued.
 
 ## What this is for

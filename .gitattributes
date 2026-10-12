@@ -1,3 +1,2 @@
-eval/fixtures/** -text
 *.sh text eol=lf
 site/vendor/** -text
