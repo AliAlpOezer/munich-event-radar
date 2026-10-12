@@ -27,6 +27,51 @@ class UserStatus(StrEnum):
     SKIPPED = "skipped"
 
 
+class OrganiserStatus(StrEnum):
+    """An organiser in the registry. A removed one is a tombstone that is never re-added."""
+
+    ACTIVE = "active"
+    DORMANT = "dormant"
+    DEMOTED = "demoted"
+    REMOVED = "removed"
+
+
+class IntakeState(StrEnum):
+    """An organisation intake's progress (ADR 0003). Working states are requeued when a
+    job is cut off mid-step."""
+
+    REVIEW = "review"
+    QUEUED = "queued"
+    CHECKING = "checking"
+    PROFILING = "profiling"
+    FINDING = "finding"
+    HARVESTING = "harvesting"
+    DONE = "done"
+    REJECTED = "rejected"
+    FAILED = "failed"
+
+
+WORKING_INTAKE_STATES = (
+    IntakeState.CHECKING,
+    IntakeState.PROFILING,
+    IntakeState.FINDING,
+    IntakeState.HARVESTING,
+)
+
+
+class JobState(StrEnum):
+    """A page waiting for, or done with, the LLM."""
+
+    PENDING = "pending"
+    DONE = "done"
+    NEEDS_LOOK = "needs_look"
+
+
+class RunOutcome(StrEnum):
+    OK = "ok"
+    FAILED = "failed"
+
+
 EVENT_FIELDS = (
     "title",
     "starts_at",
@@ -52,6 +97,11 @@ EVENT_FIELDS = (
 )
 
 
+def field_value(fields: dict, name: str) -> object:
+    """The value of one field of a stored event, or None."""
+    return (fields.get(name) or {}).get("value")
+
+
 @dataclass(frozen=True)
 class Evidence:
     value: object
@@ -71,6 +121,26 @@ class ParseResult:
     events: tuple[ParsedEvent, ...] = ()
     follow: tuple[str, ...] = ()
     needs_llm: bool = False
+
+
+@dataclass(frozen=True)
+class Verdict:
+    """The judge's tier for an event, or why it was dropped."""
+
+    tier: str | None
+    reasons: tuple[str, ...]
+    drop_reason: str | None = None
+
+
+@dataclass(frozen=True)
+class JudgedEvent:
+    """One resolved event with its verdict, as the store keeps it."""
+
+    aliases: set[str]
+    fields: dict[str, dict]
+    merge_basis: str
+    verdict: Verdict
+    sources: list[str]
 
 
 @dataclass

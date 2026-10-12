@@ -3,7 +3,7 @@ from datetime import date
 
 from selectolax.lexbor import LexborHTMLParser
 
-from ..model import Evidence, Kind, ParsedEvent, SourceClass
+from ..model import Evidence, ParsedEvent
 from ..parse import html
 from ..platforms import is_ticket_host, platform_key
 from ..store import Store
@@ -13,16 +13,20 @@ from .verify import verify
 
 
 class Extractor:
+    """Asks the LLM for the events on a page without structured data, keeping only the
+    fields its quotes ground in the page (ADR 0002 D8). Answers are cached by content
+    hash in `cache`, so a page is never asked about twice."""
+
     def __init__(self, router: Router, cache: Store):
         self.router = router
         self.cache = cache
-        self.rejected: dict[str, list[str]] = {}
 
-    def __call__(
-        self, store: Store, url: str, digest: str, body: bytes, source_class: SourceClass
-    ) -> int:
+    def extract(
+        self, url: str, digest: str, body: bytes, event_page: bool
+    ) -> tuple[str, list[ParsedEvent]]:
+        """The observation method and the events found; an event page lends its image."""
         text = html.text(body, url)
-        cached = self.cache.cached_extraction(digest, VERSION)
+        cached = self.cache.extraction.cached(digest, VERSION)
         if cached is None:
             messages = [
                 {"role": "system", "content": SYSTEM.replace("TODAY", date.today().isoformat())},
@@ -30,18 +34,15 @@ class Extractor:
             ]
             model, result = self.router.complete(messages, SCHEMA)
             cached = {"model": model, "result": result}
-            self.cache.cache_extraction(digest, VERSION, model, cached)
+            self.cache.extraction.cache(digest, VERSION, model, cached)
         events = []
         for raw in cached["result"].get("events") or []:
-            event, rejected = verify(raw, text)
-            self.rejected[url] = rejected
+            event, _ = verify(raw, text)
             if "title" in event.fields:
                 events.append(_with_keys(url, event))
-        source = store.source(url)
-        if len(events) == 1 and source and source["kind"] == Kind.EVENT_PAGE:
+        if len(events) == 1 and event_page:
             events[0] = _with_image(events[0], body, url)
-        method = f"llm:{cached['model']}@{VERSION}"
-        return store.add_observations(digest, url, source_class, method, events)
+        return f"llm:{cached['model']}@{VERSION}", events
 
 
 def _with_image(event: ParsedEvent, body: bytes, url: str) -> ParsedEvent:

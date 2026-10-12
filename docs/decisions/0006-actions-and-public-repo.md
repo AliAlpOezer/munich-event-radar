@@ -74,6 +74,17 @@ units, one reason to change each. Concretely, as found in the review of 2026-10-
 Steps 4 and 5 touch the hosted database and publish the repository: each waits for Alp's go
 at that moment.
 
+How step 2 landed (2026-10-12), where it differs from the table:
+
+| Change | Why |
+|---|---|
+| Two more repositories, `organisers` and `users` (admins and statuses); the LLM budget sits in `extraction` | The registry and the people are aggregates of their own; the budget only meters LLM calls |
+| `migrations/` and `sql/` moved into `store/` | They are the store's schema |
+| The intake API side (`submit`, `decide`, URL normalising) moved into `web/` until step 3 deletes it | Its only caller is FastAPI; the SQL functions of ADR 0005 replace it |
+| The `Extractor` returns its events and the caller stores them | The golden replay stores into a scratch schema but caches LLM answers in the real one |
+| `IntakeService` takes its HTTP client, address guard and renderer as arguments | Tests pass stand-ins instead of monkeypatching modules |
+| `event-radar run` is now `event-radar harvest` | The command names the job it starts, as the workflow does |
+
 ## Open questions
 
 1. The data to import: the 2026-10-08 laptop copy, or a fresh copy if the box comes back

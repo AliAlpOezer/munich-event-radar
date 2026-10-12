@@ -1,8 +1,6 @@
 import re
 from urllib.parse import urlsplit, urlunsplit
 
-from .model import SourceClass
-
 _PATTERNS = (
     ("luma", re.compile(r"^https?://(?:www\.)?(?:luma\.com|lu\.ma)/([A-Za-z0-9-]{6,})/?$")),
     ("eventbrite", re.compile(r"^https?://(?:www\.)?eventbrite\.[a-z.]+/e/(?:[^/?#]*-)?(\d{9,})")),
@@ -67,14 +65,13 @@ def platform_key(url: str) -> str | None:
 
 
 def is_ticket_host(url: str) -> bool:
-    host = urlsplit(url).netloc.lower()
-    return any(h in host for h in TICKET_HOSTS)
+    netloc = urlsplit(url).netloc.lower()
+    return any(h in netloc for h in TICKET_HOSTS)
 
 
-def source_class(url: str, aggregators: list[str]) -> SourceClass:
-    if is_ticket_host(url):
-        return SourceClass.TICKET
-    return SourceClass.AGG if any(a in url for a in aggregators) else SourceClass.OWN
+def host(url: str) -> str:
+    """The URL's host, lower case and without `www.`."""
+    return (urlsplit(url).hostname or "").removeprefix("www.")
 
 
 def canonical(url: str) -> str:

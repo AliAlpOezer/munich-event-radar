@@ -2,16 +2,14 @@
 workflow, a drain works the queue and exits, store locks serialise jobs, and page bodies
 live in the store until nothing can read them again."""
 
-import dataclasses
 import threading
 import time
 
 import httpx
 import pytest
 
-from event_radar import config
 from event_radar.fetch import Fetcher
-from event_radar.intake import IntakeService
+from event_radar.intake.service import IntakeService
 
 DISPATCH_URL = "https://api.github.com/repos/owner/repo/actions/workflows/intake.yml/dispatches"
 
@@ -47,43 +45,43 @@ def dispatches(store):
 
 
 def test_only_becoming_queued_dispatches_the_workflow(store, dispatches):
-    queued = store.create_intake("https://example.org/", None, None)
+    queued = store.intakes.create("https://example.org/", None, None)
     [request] = dispatches()
     assert request["url"] == DISPATCH_URL and request["body"] == {"ref": "main"}
     assert request["headers"]["Authorization"] == "Bearer token-1"
 
     waiting = _insert(store, "review")
-    store.update_intake(queued, state="checking")
-    store.update_intake(queued, name="renamed")
+    store.intakes.update(queued, state="checking")
+    store.intakes.update(queued, name="renamed")
     assert len(dispatches()) == 1
 
-    store.update_intake(waiting, state="queued", approved=True)
+    store.intakes.update(waiting, state="queued", approved=True)
     assert len(dispatches()) == 2
 
 
 def test_without_the_secrets_nothing_is_sent(store):
     with store.tx() as db:
         db.execute("DELETE FROM net.http_request_queue")
-    store.create_intake("https://example.org/", None, None)
+    store.intakes.create("https://example.org/", None, None)
     with store.tx() as db:
         assert db.execute("SELECT count(*) AS n FROM net.http_request_queue").fetchone()["n"] == 0
 
 
-def test_a_drain_works_the_queue_and_requeues_cut_off_work_first(store):
+def test_a_drain_works_the_queue_and_requeues_cut_off_work_first(store, profile):
     waiting = _insert(store, "review")
     cut_off = _insert(store, "harvesting")
     queued = _insert(store, "queued")
-    service = IntakeService(dataclasses.replace(config.load(), openrouter_key=None), store)
+    service = IntakeService(store, profile)
     worked: list[int] = []
 
     def process(intake_id: int) -> None:
         worked.append(intake_id)
-        store.update_intake(intake_id, state="done")
+        store.intakes.update(intake_id, state="done")
 
     service.process = process
     assert service.drain() == 2
     assert worked == [cut_off, queued]
-    assert store.intake(waiting)["state"] == "review"
+    assert store.intakes.get(waiting)["state"] == "review"
     assert service.drain() == 0
 
 
@@ -113,19 +111,19 @@ def _age_bodies(store) -> None:
 
 def _kept(store) -> set[bytes]:
     with store.tx() as db:
-        return {store.page(r["content_hash"]) for r in db.execute("SELECT * FROM page_body")}
+        return {store.pages.body(r["content_hash"]) for r in db.execute("SELECT * FROM page_body")}
 
 
 def test_pruning_keeps_what_a_fetch_or_the_llm_can_still_read(store):
-    store.record_page("https://example.org/a", b"a, old")
-    store.record_page("https://example.org/a", b"a, latest")
-    waiting = store.record_page("https://example.org/b", b"b, waiting for the llm")
-    store.record_page("https://example.org/b", b"b, latest")
-    store.enqueue_extraction(waiting, "https://example.org/b", priority=0)
+    store.pages.record("https://example.org/a", b"a, old")
+    store.pages.record("https://example.org/a", b"a, latest")
+    waiting = store.pages.record("https://example.org/b", b"b, waiting for the llm")
+    store.pages.record("https://example.org/b", b"b, latest")
+    store.extraction.enqueue(waiting, "https://example.org/b", priority=0)
     _age_bodies(store)
-    store.save_page(b"just stored by another job")
+    store.pages.save(b"just stored by another job")
 
-    assert store.prune_pages() == 1
+    assert store.pages.prune() == 1
     assert _kept(store) == {
         b"a, latest",
         b"b, waiting for the llm",
@@ -154,4 +152,4 @@ def test_a_fetch_whose_body_is_gone_asks_for_the_whole_page(store):
         db.execute("DELETE FROM page_body")
     assert fetcher.get(url).ok
     assert "if-none-match" not in sent[2]
-    assert store.page(store.latest_snapshot(url)["content_hash"]) == b"<html>page</html>"
+    assert store.pages.body(store.pages.latest(url)["content_hash"]) == b"<html>page</html>"

@@ -7,11 +7,13 @@ from urllib.parse import urlsplit
 
 import yaml
 
+from .extract import Extractor
 from .fetch import Fetcher
 from .judge import Judge
-from .model import Kind
+from .model import Kind, field_value
 from .pipeline import ingest
-from .platforms import canonical, source_class
+from .platforms import canonical, host
+from .profile import Profile
 from .resolve import local_date, resolve
 from .store import Store, now_iso
 
@@ -41,30 +43,26 @@ def _focus_domains(repo: Path) -> tuple[str, ...]:
 
 
 def _under(url: str, domains: tuple[str, ...]) -> bool:
-    parts = urlsplit(url)
-    return (parts.netloc.removeprefix("www.") + parts.path).startswith(domains)
+    return (host(url) + urlsplit(url).path).startswith(domains)
 
 
-def replay(repo: Path, dsn: str | None, extract=None) -> dict:
+def replay(repo: Path, dsn: str | None, extractor: Extractor | None = None) -> dict:
+    """Score the golden events from the saved pages, parsed in a scratch store. The
+    extractor keeps its cache in the real store, so a replay asks the LLM only once."""
     golden = load(repo)
     now = datetime.fromisoformat(golden["now"])
-    profile = yaml.safe_load((repo / "profile.yaml").read_text(encoding="utf-8"))
+    profile = Profile.load(repo / "profile.yaml")
     judge = Judge(profile)
     with Store.scratch(dsn) as store:
         for url, content_type, body in _fixture_pages(repo):
-            digest = store.save_page(body)
-            result = ingest(
-                store,
-                url,
-                digest,
-                content_type,
-                body,
-                Kind.EVENT_PAGE,
-                source_class(url, profile["aggregators"]),
-            )
-            if result.needs_llm and extract:
-                extract(store, url, digest, body, source_class(url, profile["aggregators"]))
-        groups = resolve(store.observations())
+            digest = store.pages.save(body)
+            source_class = profile.source_class(url)
+            result = ingest(store, url, digest, content_type, body, Kind.EVENT_PAGE, source_class)
+            if result.needs_llm and extractor:
+                # Fixture pages have no source rows, so none counts as an event page.
+                method, events = extractor.extract(url, digest, body, event_page=False)
+                store.observations.add(digest, url, source_class, method, events)
+        groups = resolve(store.observations.all())
     return _score(golden, groups, judge, now, _focus_domains(repo))
 
 
@@ -81,9 +79,7 @@ def _score(golden: dict, groups, judge: Judge, now: datetime, domains: tuple[str
         best = surfaced[0] if surfaced else (verdicts[0] if verdicts else (None, None))
         group, verdict = best
         expected_close = (event.get("registration") or {}).get("closes")
-        got_close = local_date(
-            ((group.fields if group else {}).get("reg_closes_at") or {}).get("value")
-        )
+        got_close = local_date(field_value(group.fields, "reg_closes_at") if group else None)
         rows.append(
             {
                 "id": event["id"],
@@ -120,7 +116,7 @@ def freeze(repo: Path, fetcher: Fetcher) -> dict:
             entry = {"status": result.status, "error": result.error, "fetched_at": now_iso()}
             if result.ok:
                 name = result.content_hash[:16] + _extension(result.content_type)
-                (fixtures / name).write_bytes(fetcher.store.page(result.content_hash))
+                (fixtures / name).write_bytes(fetcher.store.pages.body(result.content_hash))
                 entry |= {"file": name, "content_type": result.content_type}
             manifest[url] = entry
     tmp = manifest_path.with_suffix(".tmp")

@@ -98,7 +98,7 @@ class Router:
     ) -> tuple[str, dict]:
         failures = []
         for model in self._chain():
-            if not self.store.spend("openrouter", self.daily_cap):
+            if not self.store.extraction.spend("openrouter", self.daily_cap):
                 raise BudgetExhausted
             response = self.client.post(
                 f"{API}/chat/completions", json=_body(model, messages, schema, name)

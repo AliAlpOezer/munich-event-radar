@@ -20,7 +20,7 @@ jobs:
       - run: event-radar seed
         env:
           RADAR_DATABASE_URL: ${{ secrets.RADAR_DATABASE_URL }}
-      - run: event-radar run
+      - run: event-radar harvest
         env:
           RADAR_DATABASE_URL: ${{ secrets.RADAR_DATABASE_URL }}
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}

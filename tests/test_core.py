@@ -14,6 +14,7 @@ from event_radar.model import Evidence, Kind, Observation, SourceClass
 from event_radar.parse import parse
 from event_radar.parse.html import image_url
 from event_radar.platforms import platform_key
+from event_radar.profile import Profile
 from event_radar.resolve import local_minute, resolve
 from event_radar.store import Store
 
@@ -217,17 +218,17 @@ def test_fuzzy_merge_needs_two_stems_and_compatible_start_times():
 
 
 def test_seed_reimport_applies_ai_focus_and_migrations_run_once(store):
-    org = store.add_organiser("Munich NLP", "luma.com/munichnlp", "seed")
-    store.add_source("https://luma.com/munichnlp", "listing", "TICKET", 24, "seed", org)
-    assert store.focused_urls() == set()
-    assert store.add_organiser("Munich NLP", "luma.com/munichnlp", "seed", ai_focus=True) == org
-    assert store.focused_urls() == {"https://luma.com/munichnlp"}
+    org = store.organisers.add("Munich NLP", "luma.com/munichnlp", "seed")
+    store.sources.add("https://luma.com/munichnlp", "listing", "TICKET", 24, "seed", org)
+    assert store.sources.focused_urls() == set()
+    assert store.organisers.add("Munich NLP", "luma.com/munichnlp", "seed", ai_focus=True) == org
+    assert store.sources.focused_urls() == {"https://luma.com/munichnlp"}
     again = Store(TEST_DSN, store.schema)
-    assert again.focused_urls() == {"https://luma.com/munichnlp"}
+    assert again.sources.focused_urls() == {"https://luma.com/munichnlp"}
     again.close()
 
 
-JUDGE = Judge.from_file(REPO / "profile.yaml")
+JUDGE = Judge(Profile.load(REPO / "profile.yaml"))
 
 
 def verdict(ai_focus=True, **fields):
@@ -333,10 +334,10 @@ def test_a_sqlite_database_moves_into_postgres_with_its_ids(store, tmp_path):
 
     counts = sqlite_import.run(store, path)
     assert counts["organiser"] == counts["event"] == counts["user_state"] == 1
-    [org] = store.organisers()
+    [org] = store.organisers.all()
     assert org["id"] == 7 and org["ai_focus"] is True
-    [event] = store.events()
+    [event] = store.events.all()
     assert event["fields"]["title"]["value"] == "Demo Day" and event["user_status"] == "registered"
-    assert store.add_organiser("CDTM", "cdtm.com", "manual") == 8
+    assert store.organisers.add("CDTM", "cdtm.com", "manual") == 8
     with pytest.raises(RuntimeError, match="already holds data"):
         sqlite_import.run(store, path)

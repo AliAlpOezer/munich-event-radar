@@ -4,14 +4,13 @@ logged-in user, with the JWT claims set and only the api schema on the search pa
 import json
 import uuid
 from contextlib import contextmanager
-from types import SimpleNamespace
 
 import pytest
 from fastapi.testclient import TestClient
 from psycopg import errors, sql
 
 from conftest import TEST_DSN
-from event_radar.model import UserStatus
+from event_radar.model import JudgedEvent, UserStatus, Verdict
 from event_radar.store import Store
 from event_radar.web import create_app
 
@@ -61,17 +60,17 @@ def users(store):
 
 
 def _verdict(tier="B"):
-    return SimpleNamespace(tier=tier, reasons=("ai=core",), drop_reason=None)
+    return Verdict(tier, ("ai=core",))
 
 
 @pytest.fixture
 def board(store):
-    org = store.add_organiser("Munich NLP", "luma.com/munichnlp", "seed", ai_focus=True)
-    store.add_source("https://luma.com/munichnlp", "listing", "TICKET", 24, "seed", org)
+    org = store.organisers.add("Munich NLP", "luma.com/munichnlp", "seed", ai_focus=True)
+    store.sources.add("https://luma.com/munichnlp", "listing", "TICKET", 24, "seed", org)
     images = ["https://a.org/own.png"] + ["https://b.org/site.png"] * 3
-    store.save_events(
+    store.events.save(
         [
-            (
+            JudgedEvent(
                 {f"luma:evt-{i}"},
                 {"title": {"value": f"E{i}"}, "image": {"value": image}},
                 "platform",
@@ -81,9 +80,9 @@ def board(store):
             for i, image in enumerate(images)
         ]
     )
-    run = store.start_run()
-    store.finish_run(run, "ok", {"tier_B": 4})
-    return {e["fields"]["title"]["value"]: e["key"] for e in store.events()}
+    run = store.runs.start()
+    store.runs.finish(run, "ok", {"tier_B": 4})
+    return {e["fields"]["title"]["value"]: e["key"] for e in store.events.all()}
 
 
 def _status(store, user, key):
@@ -196,13 +195,13 @@ def test_each_user_keeps_their_own_status(store, board, users):
         db.execute("SELECT set_status(%s, 'bogus')", (key,))
     with pytest.raises(errors.ForeignKeyViolation), api(store, alice) as db:
         db.execute("SELECT set_status('nope', 'applied')")
-    assert {e["user_status"] for e in store.events()} == {"none"}
+    assert {e["user_status"] for e in store.events.all()} == {"none"}
 
 
 def test_a_suggestion_waits_for_an_admin(store, users):
     alice, bob = users(), users()
     admin = users("admin@example.org")
-    store.grant_admin("admin@example.org")
+    store.users.grant_admin("admin@example.org")
     with api(store, alice) as db:
         intake_id = db.execute(
             "SELECT suggest_organisation('https://example.org', NULL, ' Example ')"
@@ -215,7 +214,7 @@ def test_a_suggestion_waits_for_an_admin(store, users):
         True,
         "Example",
     )
-    assert store.next_intake() is None
+    assert store.intakes.next_queued() is None
     with api(store, bob) as db:
         assert db.execute("SELECT * FROM intakes").fetchall() == []
     with pytest.raises(errors.InsufficientPrivilege), api(store, alice) as db:
@@ -227,9 +226,9 @@ def test_a_suggestion_waits_for_an_admin(store, users):
         decided = db.execute("SELECT decide_intake(%s, true)", (intake_id,)).fetchone()
         assert decided["decide_intake"] == "queued"
         assert len(db.execute("SELECT * FROM runs").fetchall()) == 0
-    row = store.intake(intake_id)
+    row = store.intakes.get(intake_id)
     assert row["approved"] and [e["step"] for e in row["log"]] == ["review", "review"]
-    assert store.next_intake()["id"] == intake_id
+    assert store.intakes.next_queued()["id"] == intake_id
     with pytest.raises(errors.ObjectNotInPrerequisiteState), api(store, admin) as db:
         db.execute("SELECT decide_intake(%s, false)", (intake_id,))
     with pytest.raises(errors.InvalidParameterValue), api(store, alice) as db:
@@ -241,34 +240,34 @@ def test_a_suggestion_waits_for_an_admin(store, users):
         db.execute("SELECT suggest_organisation('https://one-too-many.example')")
     with api(store, admin) as db:
         own = db.execute("SELECT suggest_organisation('https://admin.example')").fetchone()
-    assert store.intake(own["suggest_organisation"])["state"] == "queued"
+    assert store.intakes.get(own["suggest_organisation"])["state"] == "queued"
 
 
 def test_the_owner_claims_the_statuses_kept_before_logins(store, board, users):
     key = board["E0"]
-    store.set_user_status(key, UserStatus.APPLIED)
+    store.users.set_owner_status(key, UserStatus.APPLIED)
     owner = users("alp@example.org")
     assert _status(store, owner, key) == "none"
     with pytest.raises(LookupError):
-        store.grant_admin("nobody@example.org")
-    assert store.grant_admin("ALP@example.org", owner=True)["claimed"] == 1
+        store.users.grant_admin("nobody@example.org")
+    assert store.users.grant_admin("ALP@example.org", owner=True)["claimed"] == 1
     assert _status(store, owner, key) == "applied"
-    store.set_user_status(key, UserStatus.REGISTERED)
+    store.users.set_owner_status(key, UserStatus.REGISTERED)
     assert _status(store, owner, key) == "registered"
-    assert {e["key"]: e["user_status"] for e in store.events()}[key] == "registered"
+    assert {e["key"]: e["user_status"] for e in store.events.all()}[key] == "registered"
     with pytest.raises(ValueError, match="cannot become"):
-        store.set_user_status(key, UserStatus.SKIPPED)
+        store.users.set_owner_status(key, UserStatus.SKIPPED)
     users("second@example.org")
     with pytest.raises(ValueError, match="already an owner"):
-        store.grant_admin("second@example.org", owner=True)
+        store.users.grant_admin("second@example.org", owner=True)
 
 
 def test_a_merge_keeps_each_users_status(store, users):
-    store.save_events(
-        [({"url:a"}, {"title": {"value": "A"}}, "url", _verdict(), [])]
-        + [({"url:b"}, {"title": {"value": "B"}}, "url", _verdict(), [])]
+    store.events.save(
+        [JudgedEvent({"url:a"}, {"title": {"value": "A"}}, "url", _verdict(), [])]
+        + [JudgedEvent({"url:b"}, {"title": {"value": "B"}}, "url", _verdict(), [])]
     )
-    keys = {e["fields"]["title"]["value"]: e["key"] for e in store.events()}
+    keys = {e["fields"]["title"]["value"]: e["key"] for e in store.events.all()}
     with store.tx() as db:
         db.execute(
             "UPDATE event SET first_seen = first_seen - interval '1 day' WHERE key = %s",
@@ -280,12 +279,12 @@ def test_a_merge_keeps_each_users_status(store, users):
     with api(store, bob) as db:
         db.execute("SELECT set_status(%s, 'applied')", (keys["A"],))
         db.execute("SELECT set_status(%s, 'skipped')", (keys["B"],))
-    store.set_user_status(keys["B"], UserStatus.REGISTERED)
-    counts = store.save_events(
-        [({"url:a", "url:b"}, {"title": {"value": "A"}}, "url", _verdict(), [])]
+    store.users.set_owner_status(keys["B"], UserStatus.REGISTERED)
+    counts = store.events.save(
+        [JudgedEvent({"url:a", "url:b"}, {"title": {"value": "A"}}, "url", _verdict(), [])]
     )
     assert counts["merged"] == 1
-    [event] = store.events()
+    [event] = store.events.all()
     assert event["key"] == keys["A"] and event["user_status"] == "registered"
     assert _status(store, alice, keys["A"]) == "skipped"
     assert _status(store, bob, keys["A"]) == "applied"

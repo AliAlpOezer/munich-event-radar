@@ -15,8 +15,9 @@ def ingest(
     source_class: SourceClass,
     base: str | None = None,
 ) -> ParseResult:
+    """Parse a fetched page into observations; queue it for the LLM where parsing fell short."""
     result = parse(base or url, content_type, body, kind)
-    store.add_observations(content_hash, url, source_class, result.method, result.events)
+    store.observations.add(content_hash, url, source_class, result.method, result.events)
     if result.needs_llm:
-        store.enqueue_extraction(content_hash, url, LLM_PRIORITY[kind])
+        store.extraction.enqueue(content_hash, url, LLM_PRIORITY[kind])
     return result

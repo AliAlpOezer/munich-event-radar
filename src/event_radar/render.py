@@ -1,14 +1,14 @@
 """Headless rendering for JavaScript-only pages (ADR 0002 D11, ADR 0003 D3).
 
-Playwright is the optional `browser` extra. The renderer honours robots.txt and pacing
-through the plain fetcher and records each rendered DOM as a snapshot like any fetch.
+Playwright is the optional `browser` extra. The renderer follows the same politeness as
+the plain fetcher and records each rendered DOM as a snapshot like any fetch.
 """
 
 import importlib.util
 from collections.abc import Callable
 from urllib.parse import urlsplit
 
-from .fetch import Fetched, Fetcher, RobotsDisallowed
+from .fetch import Fetched, Politeness, RobotsDisallowed
 
 TIMEOUT_MS = 30000
 
@@ -20,10 +20,10 @@ def available() -> bool:
 class Renderer:
     def __init__(
         self,
-        fetcher: Fetcher,
+        politeness: Politeness,
         guard: Callable[[str | None], None] | None = None,
     ):
-        self.fetcher = fetcher
+        self.politeness = politeness
         self.guard = guard
         self._safe: dict[str, bool] = {}
         self._playwright = None
@@ -41,7 +41,7 @@ class Renderer:
 
             self._playwright = sync_playwright().start()
             self._browser = self._playwright.chromium.launch()
-        page = self._browser.new_page(user_agent=self.fetcher.user_agent)
+        page = self._browser.new_page(user_agent=self.politeness.user_agent)
         if self.guard:
             page.route("**/*", self._route)
         return page
@@ -61,8 +61,7 @@ class Renderer:
 
     def fetch(self, url: str) -> Fetched:
         try:
-            self.fetcher.check_robots(url)
-            self.fetcher.pace(url)
+            self.politeness.admit(url)
             page = self._page()
             try:
                 response = page.goto(url, wait_until="networkidle", timeout=TIMEOUT_MS)
@@ -72,12 +71,12 @@ class Renderer:
             finally:
                 page.close()
         except RobotsDisallowed:
-            return self.fetcher.fail(url, None, "robots_disallowed")
+            return self.politeness.fail(url, None, "robots_disallowed")
         except Exception as exc:  # Playwright raises its own error types
-            return self.fetcher.fail(url, None, f"render: {type(exc).__name__}: {exc}"[:300])
+            return self.politeness.fail(url, None, f"render: {type(exc).__name__}: {exc}"[:300])
         if status and status >= 400:
-            return self.fetcher.fail(url, status, f"http_{status}")
-        digest = self.fetcher.store.record_page(
+            return self.politeness.fail(url, status, f"http_{status}")
+        digest = self.politeness.store.pages.record(
             url, body, http_status=status, content_type="text/html"
         )
         return Fetched(url, status, digest, "text/html", True, final_url=final)

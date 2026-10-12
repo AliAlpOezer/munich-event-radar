@@ -3,7 +3,6 @@ import argparse
 import uvicorn
 
 from .. import config
-from ..intake import IntakeService
 from ..store import Store
 from . import create_app
 
@@ -14,9 +13,8 @@ def main() -> None:
     parser.add_argument("--port", type=int, default=8010)
     args = parser.parse_args()
     settings = config.load()
-    store = Store(settings.database_url)
     # Submissions and decisions only; `event-radar intakes` works the queue (ADR 0006).
-    app = create_app(store, IntakeService(settings, store))
+    app = create_app(Store(settings.database_url), intakes_enabled=True)
     uvicorn.run(app, host=args.host, port=args.port, log_level="warning")
 
 

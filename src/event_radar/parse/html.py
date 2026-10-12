@@ -6,15 +6,25 @@ from selectolax.lexbor import LexborHTMLParser
 _DROP = "script, style, noscript, svg, nav, footer, header, form, iframe"
 _SPACE = re.compile(r"[ \t ]+")
 _LINES = re.compile(r"\n\s*\n+")
+_NOT_PAGES = ("#", "mailto:", "tel:", "javascript:")
+
+
+def anchors(tree: LexborHTMLParser, base: str) -> list[tuple[str, str]]:
+    """Each distinct web link on the page, absolute and without its fragment, with the
+    text of its first anchor. Calendar links (`webcal://`) count as https."""
+    found = {}
+    for anchor in tree.css("a[href]"):
+        href = (anchor.attributes.get("href") or "").strip()
+        if not href or href.startswith(_NOT_PAGES):
+            continue
+        url = urljoin(base, href.replace("webcal://", "https://").split("#")[0])
+        if url.startswith("http"):
+            found.setdefault(url, anchor.text(strip=True))
+    return list(found.items())
 
 
 def links(tree: LexborHTMLParser, base: str) -> list[str]:
-    found = []
-    for anchor in tree.css("a[href]"):
-        href = anchor.attributes.get("href") or ""
-        if href.startswith(("http", "/")):
-            found.append(urljoin(base, href.split("#")[0]))
-    return list(dict.fromkeys(found))
+    return [url for url, _ in anchors(tree, base)]
 
 
 def image_url(value: object, base: str) -> str | None:

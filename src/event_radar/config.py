@@ -15,18 +15,7 @@ class Settings:
     database_url: str | None
     openrouter_key: str | None
     llm_daily_cap: int
-    tavily_key: str | None
-    telegram_token: str | None
-    telegram_chat_id: str | None
-    google_key_file: Path | None
-    calendar_id: str | None
     healthcheck_url: str | None
-    eventbrite_token: str | None
-
-
-def _path(name: str) -> Path | None:
-    value = os.environ.get(name)
-    return Path(value) if value else None
 
 
 def _dotenv(path: Path) -> None:
@@ -47,11 +36,5 @@ def load() -> Settings:
         database_url=os.environ.get("RADAR_DATABASE_URL"),
         openrouter_key=os.environ.get("OPENROUTER_API_KEY"),
         llm_daily_cap=int(os.environ.get("RADAR_LLM_DAILY_CAP", "35")),
-        tavily_key=os.environ.get("TAVILY_API_KEY"),
-        telegram_token=os.environ.get("TELEGRAM_BOT_TOKEN"),
-        telegram_chat_id=os.environ.get("TELEGRAM_CHAT_ID"),
-        google_key_file=_path("GOOGLE_SERVICE_ACCOUNT_FILE"),
-        calendar_id=os.environ.get("RADAR_CALENDAR_ID"),
         healthcheck_url=os.environ.get("HEALTHCHECK_URL"),
-        eventbrite_token=os.environ.get("EVENTBRITE_TOKEN"),
     )

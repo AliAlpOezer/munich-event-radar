@@ -16,7 +16,6 @@ dependencies = [
 
 [project.optional-dependencies]
 web = ["fastapi>=0.110", "uvicorn>=0.29"]
-calendar = ["google-auth>=2.29", "requests>=2.31"]
 browser = ["playwright>=1.48"]
 dev = ["pytest>=8.2", "ruff>=0.5"]
 
