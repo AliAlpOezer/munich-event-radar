@@ -9,6 +9,7 @@ from fastapi.testclient import TestClient
 from selectolax.lexbor import LexborHTMLParser
 
 from event_radar import config, intake, render
+from event_radar.fetch import Fetched
 from event_radar.web import create_app
 
 FIXTURES = Path(__file__).parent / "fixtures"
@@ -96,11 +97,16 @@ def _site(start: str) -> dict[str, str]:
     }
 
 
+def _start() -> str:
+    return (datetime.now(UTC) + timedelta(days=30)).strftime("%Y-%m-%dT18:00:00+01:00")
+
+
 @pytest.fixture
 def service(tmp_path, monkeypatch, store):
-    start = (datetime.now(UTC) + timedelta(days=30)).strftime("%Y-%m-%dT18:00:00+01:00")
-    pages = _site(start)
+    return _service(tmp_path, monkeypatch, store, _site(_start()))
 
+
+def _service(tmp_path, monkeypatch, store, pages: dict[str, str]) -> intake.IntakeService:
     def handler(request: httpx.Request) -> httpx.Response:
         body = pages.get(request.url.path)
         if body is None:
@@ -170,3 +176,45 @@ def test_without_the_service_adding_is_disabled(store):
     client = TestClient(create_app(store))
     assert client.get("/api/intakes").json() == {"enabled": False, "intakes": []}
     assert client.post("/api/intakes", json={"url": "example.org"}).status_code == 503
+
+
+CALENDAR = "https://example.org/calendar"
+SHELL = "<html><body><div id='app'></div><script src='/app.js'></script></body></html>"
+
+
+def test_a_page_reached_through_two_links_is_rendered_once(tmp_path, monkeypatch, store):
+    # CDTM, 2026-10-12: /events renders to its Luma calendar, which the homepage also links.
+    site = _site(_start())
+    listing = site.pop("/events")
+    site["/"] = site["/"].replace(
+        '<a href="/team">', '<a href="/calendar">Calendar</a><a href="/team">'
+    )
+    site["/events"] = site["/calendar"] = SHELL
+    renders: list[str] = []
+
+    class Renderer:
+        def __init__(self, fetcher, snapshots, guard=None):
+            self.snapshots = snapshots
+
+        def fetch(self, url: str) -> Fetched:
+            renders.append(url)
+            digest = self.snapshots.put(listing.encode())
+            return Fetched(url, 200, digest, "text/html", True, final_url=CALENDAR)
+
+        def close(self) -> None:
+            pass
+
+    svc = _service(tmp_path, monkeypatch, store, site)
+    monkeypatch.setattr(render, "available", lambda: True)
+    monkeypatch.setattr(render, "Renderer", Renderer)
+    intake_id = svc.submit("example.org", None, None)
+    svc.store.update_intake(intake_id, approved=True)
+    svc.process(intake_id)
+
+    row = svc.store.intake(intake_id)
+    assert row["state"] == "done", row["log"]
+    # Finding renders /events once; the harvest then renders the calendar it found.
+    assert renders == ["https://example.org/events", CALENDAR]
+    assert [s["url"] for s in svc.store.organiser_sources(row["organiser_id"])] == [CALENDAR]
+    finding = [e["text"] for e in row["log"] if e["step"] == "finding"]
+    assert sum(CALENDAR in t for t in finding) == 2 and any("already" in t for t in finding)

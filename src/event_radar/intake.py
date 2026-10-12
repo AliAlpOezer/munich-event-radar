@@ -448,11 +448,18 @@ class IntakeService:
         )
         kept: dict[str, Candidate] = {}
         for candidate in unique[:MAX_CANDIDATES]:
+            # A rendered page can land on another candidate, e.g. /events on its Luma page.
+            if canonical(candidate.url) in kept:
+                log(intake_id, "finding", f"{candidate.url}: already found ({candidate.why}).")
+                continue
             found = self._probe(candidate, fetcher, renderer)
             if found is None:
                 log(intake_id, "finding", f"{candidate.url}: nothing usable ({candidate.why}).")
                 continue
-            kept.setdefault(canonical(found.url), found)
+            if canonical(found.url) in kept:
+                log(intake_id, "finding", f"{candidate.url} leads to {found.url}, already found.")
+                continue
+            kept[canonical(found.url)] = found
             how = " after rendering it" if found.browser else ""
             log(
                 intake_id,
