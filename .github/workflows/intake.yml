@@ -1,0 +1,26 @@
+name: intake
+on:
+  # Dispatched by Postgres when an intake becomes 'queued' (ADR 0006 D3). The hourly run
+  # covers a lost dispatch or an expired token.
+  workflow_dispatch:
+  schedule:
+    - cron: "43 * * * *"
+concurrency:
+  group: intake
+  cancel-in-progress: false
+permissions:
+  contents: read
+jobs:
+  intake:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup
+        with:
+          extras: browser
+          browser: "true"
+      - run: event-radar intakes
+        env:
+          RADAR_DATABASE_URL: ${{ secrets.RADAR_DATABASE_URL }}
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}

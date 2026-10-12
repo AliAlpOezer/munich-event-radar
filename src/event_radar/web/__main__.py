@@ -15,7 +15,7 @@ def main() -> None:
     args = parser.parse_args()
     settings = config.load()
     store = Store(settings.database_url)
-    # Submissions and decisions only; `event-radar intake-worker` works the queue (ADR 0005).
+    # Submissions and decisions only; `event-radar intakes` works the queue (ADR 0006).
     app = create_app(store, IntakeService(settings, store))
     uvicorn.run(app, host=args.host, port=args.port, log_level="warning")
 

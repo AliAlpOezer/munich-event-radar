@@ -11,7 +11,6 @@ def user_agent() -> str:
 
 @dataclass(frozen=True)
 class Settings:
-    data_dir: Path
     repo_dir: Path
     database_url: str | None
     openrouter_key: str | None
@@ -23,10 +22,6 @@ class Settings:
     calendar_id: str | None
     healthcheck_url: str | None
     eventbrite_token: str | None
-
-    @property
-    def snapshot_dir(self) -> Path:
-        return self.data_dir / "snapshots"
 
 
 def _path(name: str) -> Path | None:
@@ -48,7 +43,6 @@ def load() -> Settings:
     repo = Path(__file__).resolve().parents[2]
     _dotenv(repo / ".env")
     return Settings(
-        data_dir=_path("RADAR_DATA_DIR") or repo / "data",
         repo_dir=repo,
         database_url=os.environ.get("RADAR_DATABASE_URL"),
         openrouter_key=os.environ.get("OPENROUTER_API_KEY"),

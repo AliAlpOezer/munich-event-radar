@@ -1,12 +1,12 @@
+import gzip
 import hashlib
 import uuid
 import weakref
-from collections.abc import Callable, Iterator
+from collections.abc import Iterator
 from contextlib import contextmanager
 from datetime import UTC, datetime
 from pathlib import Path
 
-import psycopg
 from psycopg import Connection, errors, sql
 from psycopg.rows import dict_row
 from psycopg.types.json import Jsonb
@@ -25,10 +25,6 @@ OWNER_STATE = (
 )
 
 
-class WorkerBusy(Exception):
-    """Another intake worker already serves this store."""
-
-
 def now_iso() -> str:
     return datetime.now(UTC).isoformat(timespec="seconds")
 
@@ -39,6 +35,25 @@ def _evidence_json(fields: dict[str, Evidence]) -> Jsonb:
 
 def _evidence_load(raw: dict) -> dict[str, Evidence]:
     return {k: Evidence(v["value"], v.get("quote")) for k, v in raw.items()}
+
+
+def _save_body(db: Connection, digest: str, body: bytes) -> None:
+    db.execute(
+        "INSERT INTO page_body (content_hash, body) VALUES (%s, %s)"
+        " ON CONFLICT (content_hash) DO UPDATE SET stored_at = now()",
+        (digest, gzip.compress(body)),
+    )
+
+
+def _insert_snapshot(db: Connection, url: str, **cols) -> None:
+    cols = {"url": url, "fetched_at": now_iso(), **cols}
+    db.execute(
+        sql.SQL("INSERT INTO snapshot ({}) VALUES ({})").format(
+            sql.SQL(", ").join(map(sql.Identifier, cols)),
+            sql.SQL(", ").join(sql.Placeholder() * len(cols)),
+        ),
+        tuple(cols.values()),
+    )
 
 
 def _search_path(db: Connection, *schemas: str) -> None:
@@ -140,22 +155,71 @@ class Store:
         with self.pool.connection() as db:
             yield db
 
-    def record_snapshot(self, url: str, **cols) -> None:
-        cols = {"url": url, "fetched_at": now_iso(), **cols}
-        query = sql.SQL("INSERT INTO snapshot ({}) VALUES ({})").format(
-            sql.SQL(", ").join(map(sql.Identifier, cols)),
-            sql.SQL(", ").join(sql.Placeholder() * len(cols)),
-        )
+    @contextmanager
+    def lock(self, name: str) -> Iterator[None]:
+        """Hold the store-wide lock `name` for the block, waiting while another job holds
+        it (ADR 0006 D4). A session lock, so it outlives the transaction that took it."""
+        key = f"{self.schema}.{name}"
+        with self.pool.connection() as db:
+            db.execute("SELECT pg_advisory_lock(hashtext(%s))", (key,))
+            db.commit()
+            try:
+                yield
+            finally:
+                db.execute("SELECT pg_advisory_unlock(hashtext(%s))", (key,))
+
+    def record_page(self, url: str, body: bytes, **cols) -> str:
+        """Keep a fetched page and its snapshot row in one transaction; returns its hash."""
+        digest = hashlib.sha256(body).hexdigest()
         with self.tx() as db:
-            db.execute(query, tuple(cols.values()))
+            _save_body(db, digest, body)
+            _insert_snapshot(db, url, content_hash=digest, **cols)
+        return digest
+
+    def record_failure(self, url: str, http_status: int | None, error: str) -> None:
+        with self.tx() as db:
+            _insert_snapshot(db, url, http_status=http_status, error=error)
+
+    def save_page(self, body: bytes) -> str:
+        """Keep a page body that has no fetch behind it (the golden replay)."""
+        digest = hashlib.sha256(body).hexdigest()
+        with self.tx() as db:
+            _save_body(db, digest, body)
+        return digest
+
+    def page(self, content_hash: str) -> bytes:
+        with self.tx() as db:
+            row = db.execute(
+                "SELECT body FROM page_body WHERE content_hash = %s", (content_hash,)
+            ).fetchone()
+        if row is None:
+            raise KeyError(content_hash)
+        return gzip.decompress(row["body"])
 
     def latest_snapshot(self, url: str) -> Row | None:
+        """The newest successful fetch of `url` whose body is still kept."""
         with self.tx() as db:
             return db.execute(
-                "SELECT * FROM snapshot WHERE url = %s AND content_hash IS NOT NULL"
-                " ORDER BY id DESC LIMIT 1",
+                "SELECT s.* FROM snapshot s JOIN page_body USING (content_hash)"
+                " WHERE s.url = %s ORDER BY s.id DESC LIMIT 1",
                 (url,),
             ).fetchone()
+
+    def prune_pages(self, keep_hours: int = 1) -> int:
+        """Drop the bodies nothing can read again: kept are each URL's latest fetch, pages
+        waiting for the LLM, and anything stored in the last `keep_hours`, which a job
+        running alongside may not have recorded yet (ADR 0006 D2)."""
+        with self.tx() as db:
+            return db.execute(
+                "WITH latest AS (SELECT DISTINCT ON (url) content_hash FROM snapshot"
+                "                WHERE content_hash IS NOT NULL ORDER BY url, id DESC)"
+                " DELETE FROM page_body b"
+                " WHERE b.stored_at < now() - make_interval(hours => %s)"
+                " AND NOT EXISTS (SELECT FROM latest l WHERE l.content_hash = b.content_hash)"
+                " AND NOT EXISTS (SELECT FROM extraction_job j"
+                "                 WHERE j.snapshot_hash = b.content_hash AND j.state = 'pending')",
+                (keep_hours,),
+            ).rowcount
 
     def add_observations(
         self, snapshot_hash: str, url: str, source_class: SourceClass, method: str, events
@@ -195,8 +259,10 @@ class Store:
         only = " AND url = ANY(%s)" if urls is not None else ""
         params = (urls, limit) if urls is not None else (limit,)
         with self.tx() as db:
+            # A job whose body was never imported waits until a fetch stores it again.
             return db.execute(
-                f"SELECT * FROM extraction_job WHERE state = 'pending'{only}"
+                "SELECT * FROM extraction_job j WHERE state = 'pending' AND EXISTS"
+                f" (SELECT FROM page_body b WHERE b.content_hash = j.snapshot_hash){only}"
                 " ORDER BY priority, attempts LIMIT %s",
                 params,
             ).fetchall()
@@ -564,33 +630,6 @@ class Store:
             return db.execute(
                 "SELECT * FROM intake WHERE state = 'queued' ORDER BY id LIMIT 1"
             ).fetchone()
-
-    @contextmanager
-    def intake_listener(self) -> Iterator[Callable[[float], None]]:
-        """The intake worker's own session (ADR 0005): it holds the one-worker lock and
-        LISTENs for queued intakes. Yields `wait(seconds)`, which returns on a notification
-        or when the time is up, and raises once the session is gone (keepalives catch a
-        silent drop), so the worker exits and systemd restarts it instead of waiting deaf."""
-        channel = f"{self.schema}.intake"
-        with psycopg.connect(
-            self.dsn,
-            autocommit=True,
-            application_name="event-radar intake worker",
-            keepalives=1,
-            keepalives_idle=30,
-            keepalives_interval=10,
-        ) as db:
-            # LISTEN first: whoever holds the lock is already listening.
-            db.execute(sql.SQL("LISTEN {}").format(sql.Identifier(channel)))
-            locked = db.execute("SELECT pg_try_advisory_lock(hashtext(%s))", (channel,))
-            if not locked.fetchone()[0]:
-                raise WorkerBusy(f"another intake worker serves {self.schema}")
-
-            def wait(seconds: float) -> None:
-                for _ in db.notifies(timeout=seconds, stop_after=1):
-                    pass
-
-            yield wait
 
     def requeue_interrupted_intakes(self) -> int:
         with self.tx() as db:

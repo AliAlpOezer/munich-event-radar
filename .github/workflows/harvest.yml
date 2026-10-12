@@ -1,0 +1,26 @@
+name: harvest
+on:
+  # Every 2 h, 05:17 to 21:17 UTC: 07:17 to 23:17 Berlin in summer, an hour earlier in
+  # winter. Off the full hour, when GitHub is busiest and may drop scheduled runs.
+  schedule:
+    - cron: "17 5-21/2 * * *"
+  workflow_dispatch:
+concurrency:
+  group: harvest
+  cancel-in-progress: false
+permissions:
+  contents: read
+jobs:
+  harvest:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 50
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup
+      - run: event-radar seed
+        env:
+          RADAR_DATABASE_URL: ${{ secrets.RADAR_DATABASE_URL }}
+      - run: event-radar run
+        env:
+          RADAR_DATABASE_URL: ${{ secrets.RADAR_DATABASE_URL }}
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}

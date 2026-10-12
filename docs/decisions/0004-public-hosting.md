@@ -19,7 +19,7 @@ fetched. Nothing costs money.
 |---|---|---|
 | Audience | Public board; login adds personal status and organisation suggestions | Invite-only: hides a public good for a smaller legal surface. Full multi-user (own profile, organisers, notifications per user): makes the judge, pushes and calendar per-user, far larger for no current user |
 | Store | Supabase Postgres is the only store; SQLite goes | SQLite on the box plus a published copy: user status and intakes would sync back the other way, two truths |
-| Harvester host | Stays on the box (timer, Playwright, snapshots on disk) | GitHub Actions: the repo is private (minute cap), snapshots would need Supabase Storage (1 GB) and the browser unit a runner image |
+| Harvester host | Stays on the box (timer, Playwright, snapshots on disk). Superseded by ADR 0006 (2026-10-12): GitHub Actions, page bodies in Postgres | GitHub Actions: the repo is private (minute cap), snapshots would need Supabase Storage (1 GB) and the browser unit a runner image |
 | Login | Google and GitHub OAuth through Supabase Auth | Email magic link: Supabase's built-in mail reaches only project team members, 2 per hour; own SMTP usually needs a paid domain |
 | Page host | Cloudflare Pages, static, on `munichai.pages.dev` (name chosen 2026-10-12) | FastAPI on Workers: 10 ms CPU per request on the free plan. Cloudflare Tunnel to the box: the site would go down with the box (offline about 2026-08-27 to 2026-10-07). A custom domain: costs money |
 

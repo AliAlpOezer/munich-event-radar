@@ -21,6 +21,7 @@ PRIVATE = (
     "extraction",
     "extraction_job",
     "observation",
+    "page_body",
     "push_ledger",
     "snapshot",
     "user_state_unclaimed",

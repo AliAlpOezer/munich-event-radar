@@ -35,3 +35,25 @@ The store is Postgres (ADR 0004). Tests need a local server and never read
 | Create the test database once | `psql -U postgres -h localhost -c "create database radar_test"` |
 | Run the tests | `.venv/Scripts/python -m pytest` (override with `RADAR_TEST_DATABASE_URL`) |
 | Move a SQLite store into Postgres | `RADAR_DATABASE_URL=... event-radar import-sqlite path/to/radar.db` |
+
+## Running (ADR 0006)
+
+Every job runs on GitHub Actions; no machine of ours has to be on.
+
+| Workflow | When | Does |
+|---|---|---|
+| `harvest` | every 2 h, 05:17-21:17 UTC | `event-radar seed`, then `run`: fetch, extract with OpenRouter, judge |
+| `browse` | Sundays 03:17 UTC | `event-radar browse`: renders JavaScript-only sources with Chromium |
+| `intake` | dispatched by Postgres when an intake is queued, and hourly | `event-radar intakes`: works the queue, then exits |
+| `test` | every push and pull request | ruff and pytest against a Postgres 17 service |
+
+One-time setup:
+
+| Where | What |
+|---|---|
+| GitHub, Settings > Secrets > Actions | `RADAR_DATABASE_URL` (Supabase session pooler) and `OPENROUTER_API_KEY` |
+| GitHub, a fine-grained token | this repository only, Actions: read and write; it dispatches `intake.yml` |
+| Supabase, SQL editor | `select vault.create_secret('https://api.github.com/repos/<owner>/<repo>/actions/workflows/intake.yml/dispatches', 'intake_dispatch_url');` and `select vault.create_secret('<token>', 'intake_dispatch_token');` |
+
+Without the two Vault secrets nothing is dispatched, and the hourly `intake` run works the
+queue. A failed scheduled run emails whoever last changed the workflow's schedule.

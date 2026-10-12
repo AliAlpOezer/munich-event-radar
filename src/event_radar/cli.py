@@ -5,15 +5,12 @@ from pathlib import Path
 from . import config, golden, runner, sqlite_import
 from .fetch import Fetcher
 from .resolve import local_minute
-from .snapshots import SnapshotStore
 from .store import Store
 
 
 def _freeze(settings: config.Settings) -> None:
-    store = Store(settings.database_url)
-    snapshots = SnapshotStore(settings.snapshot_dir)
-    fetcher = Fetcher(store, snapshots, config.user_agent())
-    manifest = golden.freeze(settings.repo_dir, fetcher, snapshots)
+    fetcher = Fetcher(Store(settings.database_url), config.user_agent())
+    manifest = golden.freeze(settings.repo_dir, fetcher)
     print(json.dumps({u: e.get("file") or e.get("error") for u, e in manifest.items()}, indent=1))
 
 
@@ -55,16 +52,11 @@ def _board(settings: config.Settings) -> None:
         print(" | ".join(str(c) if c is not None else "-" for c in row))
 
 
-def _intake_worker(settings: config.Settings) -> None:
+def _intakes(settings: config.Settings) -> None:
     from .intake import IntakeService
-    from .store import WorkerBusy
 
-    store = Store(settings.database_url)
-    print(f"intake worker starting on schema {store.schema}", flush=True)
-    try:
-        IntakeService(settings, store).serve()
-    except WorkerBusy as exc:
-        raise SystemExit(str(exc)) from exc
+    worked = IntakeService(settings, Store(settings.database_url)).drain()
+    print(f"worked {worked} intakes")
 
 
 COMMANDS = {
@@ -74,7 +66,7 @@ COMMANDS = {
     "run": lambda s: print(json.dumps(runner.run(s))),
     "browse": lambda s: print(json.dumps(runner.browse(s))),
     "board": _board,
-    "intake-worker": _intake_worker,
+    "intakes": _intakes,
 }
 
 

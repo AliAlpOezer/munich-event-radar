@@ -9,7 +9,6 @@ from collections.abc import Callable
 from urllib.parse import urlsplit
 
 from .fetch import Fetched, Fetcher, RobotsDisallowed
-from .snapshots import SnapshotStore
 
 TIMEOUT_MS = 30000
 
@@ -22,11 +21,9 @@ class Renderer:
     def __init__(
         self,
         fetcher: Fetcher,
-        snapshots: SnapshotStore,
         guard: Callable[[str | None], None] | None = None,
     ):
         self.fetcher = fetcher
-        self.snapshots = snapshots
         self.guard = guard
         self._safe: dict[str, bool] = {}
         self._playwright = None
@@ -64,8 +61,8 @@ class Renderer:
 
     def fetch(self, url: str) -> Fetched:
         try:
-            self.fetcher._check_robots(url)
-            self.fetcher._pace(url)
+            self.fetcher.check_robots(url)
+            self.fetcher.pace(url)
             page = self._page()
             try:
                 response = page.goto(url, wait_until="networkidle", timeout=TIMEOUT_MS)
@@ -75,14 +72,13 @@ class Renderer:
             finally:
                 page.close()
         except RobotsDisallowed:
-            return self.fetcher._fail(url, None, "robots_disallowed")
+            return self.fetcher.fail(url, None, "robots_disallowed")
         except Exception as exc:  # Playwright raises its own error types
-            return self.fetcher._fail(url, None, f"render: {type(exc).__name__}: {exc}"[:300])
+            return self.fetcher.fail(url, None, f"render: {type(exc).__name__}: {exc}"[:300])
         if status and status >= 400:
-            return self.fetcher._fail(url, status, f"http_{status}")
-        digest = self.snapshots.put(body)
-        self.fetcher.store.record_snapshot(
-            url, content_hash=digest, http_status=status, content_type="text/html"
+            return self.fetcher.fail(url, status, f"http_{status}")
+        digest = self.fetcher.store.record_page(
+            url, body, http_status=status, content_type="text/html"
         )
         return Fetched(url, status, digest, "text/html", True, final_url=final)
 

@@ -5,7 +5,6 @@ from urllib.parse import urlsplit
 import httpx
 from protego import Protego
 
-from .snapshots import SnapshotStore
 from .store import Store
 
 MAX_BYTES = 5_000_000
@@ -35,13 +34,11 @@ class Fetcher:
     def __init__(
         self,
         store: Store,
-        snapshots: SnapshotStore,
         user_agent: str,
         min_interval_s: float = 5.0,
         client: httpx.Client | None = None,
     ):
         self.store = store
-        self.snapshots = snapshots
         self.user_agent = user_agent
         self.min_interval_s = min_interval_s
         self.client = client or httpx.Client(
@@ -52,12 +49,12 @@ class Fetcher:
 
     def get(self, url: str) -> Fetched:
         try:
-            self._check_robots(url)
+            self.check_robots(url)
             return self._get(url)
         except RobotsDisallowed:
-            return self._fail(url, None, "robots_disallowed")
+            return self.fail(url, None, "robots_disallowed")
         except (httpx.HTTPError, TimeoutError) as exc:
-            return self._fail(url, None, f"{type(exc).__name__}: {exc}"[:300])
+            return self.fail(url, None, f"{type(exc).__name__}: {exc}"[:300])
 
     def _get(self, url: str) -> Fetched:
         previous = self.store.latest_snapshot(url)
@@ -70,12 +67,11 @@ class Fetcher:
         if status == 304 and previous:
             return Fetched(url, 304, previous["content_hash"], previous["content_type"], False)
         if status >= 400:
-            return self._fail(url, status, f"http_{status}")
-        digest = self.snapshots.put(body)
+            return self.fail(url, status, f"http_{status}")
         content_type = response_headers.get("content-type")
-        self.store.record_snapshot(
+        digest = self.store.record_page(
             url,
-            content_hash=digest,
+            body,
             http_status=status,
             content_type=content_type,
             etag=response_headers.get("etag"),
@@ -85,7 +81,7 @@ class Fetcher:
         return Fetched(url, status, digest, content_type, changed)
 
     def _bounded_get(self, url: str, headers: dict) -> tuple[int, bytes, httpx.Headers]:
-        self._pace(url)
+        self.pace(url)
         deadline = time.monotonic() + WALL_CLOCK_S
         chunks, size = [], 0
         with self.client.stream("GET", url, headers=headers) as response:
@@ -98,18 +94,20 @@ class Fetcher:
                 chunks.append(chunk)
             return response.status_code, b"".join(chunks), response.headers
 
-    def _fail(self, url: str, status: int | None, error: str) -> Fetched:
-        self.store.record_snapshot(url, http_status=status, error=error)
+    def fail(self, url: str, status: int | None, error: str) -> Fetched:
+        """Record a failed fetch of `url`, by this fetcher or the renderer."""
+        self.store.record_failure(url, status, error)
         return Fetched(url, status, None, None, False, error)
 
-    def _pace(self, url: str) -> None:
+    def pace(self, url: str) -> None:
+        """Wait until this host may be asked again."""
         host = urlsplit(url).netloc
         wait = self._last_hit.get(host, 0.0) + self.min_interval_s - time.monotonic()
         if wait > 0:
             time.sleep(wait)
         self._last_hit[host] = time.monotonic()
 
-    def _check_robots(self, url: str) -> None:
+    def check_robots(self, url: str) -> None:
         parts = urlsplit(url)
         origin = f"{parts.scheme}://{parts.netloc}"
         if origin not in self._robots:
@@ -120,7 +118,7 @@ class Fetcher:
 
     def _load_robots(self, origin: str) -> Protego | None:
         try:
-            self._pace(origin)
+            self.pace(origin)
             response = self.client.get(f"{origin}/robots.txt")
         except httpx.HTTPError:
             return DISALLOW_ALL

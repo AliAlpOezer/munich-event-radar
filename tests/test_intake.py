@@ -102,11 +102,11 @@ def _start() -> str:
 
 
 @pytest.fixture
-def service(tmp_path, monkeypatch, store):
-    return _service(tmp_path, monkeypatch, store, _site(_start()))
+def service(monkeypatch, store):
+    return _service(monkeypatch, store, _site(_start()))
 
 
-def _service(tmp_path, monkeypatch, store, pages: dict[str, str]) -> intake.IntakeService:
+def _service(monkeypatch, store, pages: dict[str, str]) -> intake.IntakeService:
     def handler(request: httpx.Request) -> httpx.Response:
         body = pages.get(request.url.path)
         if body is None:
@@ -120,9 +120,7 @@ def _service(tmp_path, monkeypatch, store, pages: dict[str, str]) -> intake.Inta
         lambda ua: httpx.Client(transport=httpx.MockTransport(handler), follow_redirects=True),
     )
     monkeypatch.setattr(render, "available", lambda: False)
-    settings = dataclasses.replace(
-        config.load(), data_dir=tmp_path, database_url=None, openrouter_key=None
-    )
+    settings = dataclasses.replace(config.load(), database_url=None, openrouter_key=None)
     svc = intake.IntakeService(settings, store)
     svc.min_interval_s = 0
     return svc
@@ -182,7 +180,7 @@ CALENDAR = "https://example.org/calendar"
 SHELL = "<html><body><div id='app'></div><script src='/app.js'></script></body></html>"
 
 
-def test_a_page_reached_through_two_links_is_rendered_once(tmp_path, monkeypatch, store):
+def test_a_page_reached_through_two_links_is_rendered_once(monkeypatch, store):
     # CDTM, 2026-10-12: /events renders to its Luma calendar, which the homepage also links.
     site = _site(_start())
     listing = site.pop("/events")
@@ -193,18 +191,18 @@ def test_a_page_reached_through_two_links_is_rendered_once(tmp_path, monkeypatch
     renders: list[str] = []
 
     class Renderer:
-        def __init__(self, fetcher, snapshots, guard=None):
-            self.snapshots = snapshots
+        def __init__(self, fetcher, guard=None):
+            self.store = fetcher.store
 
         def fetch(self, url: str) -> Fetched:
             renders.append(url)
-            digest = self.snapshots.put(listing.encode())
+            digest = self.store.record_page(url, listing.encode())
             return Fetched(url, 200, digest, "text/html", True, final_url=CALENDAR)
 
         def close(self) -> None:
             pass
 
-    svc = _service(tmp_path, monkeypatch, store, site)
+    svc = _service(monkeypatch, store, site)
     monkeypatch.setattr(render, "available", lambda: True)
     monkeypatch.setattr(render, "Renderer", Renderer)
     intake_id = svc.submit("example.org", None, None)

@@ -1,6 +1,7 @@
--- The parts of Supabase that the radar's policies name, created only where missing
--- (ADR 0005, decision 9). On Supabase every object exists already and nothing runs, so this
--- never touches the auth schema there. Locally and in CI it makes RLS testable.
+-- The parts of Supabase that the radar's policies and triggers name, created only where
+-- missing (ADR 0005, decision 9). On Supabase every object exists already, so this never
+-- touches the auth schema there; it only enables pg_net once. Locally and in CI it makes RLS
+-- and the intake dispatch testable.
 DO $shim$
 DECLARE
     role_name text;
@@ -39,6 +40,36 @@ BEGIN
                 nullif(current_setting('request.jwt.claims', true), '')::jsonb ->> 'sub'
             )::uuid
         $$;
+    END IF;
+
+    -- pg_net and Vault (ADR 0006). Where Postgres offers pg_net, as Supabase does, it is
+    -- enabled; elsewhere a stand-in records each request in a table of the same name.
+    IF to_regnamespace('net') IS NULL THEN
+        IF EXISTS (SELECT FROM pg_available_extensions WHERE name = 'pg_net') THEN
+            CREATE EXTENSION pg_net;
+        ELSE
+            CREATE SCHEMA net;
+            CREATE TABLE net.http_request_queue (
+                id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+                url text NOT NULL,
+                headers jsonb NOT NULL,
+                body jsonb
+            );
+            CREATE FUNCTION net.http_post(
+                url text,
+                body jsonb DEFAULT '{}',
+                params jsonb DEFAULT '{}',
+                headers jsonb DEFAULT '{}',
+                timeout_milliseconds integer DEFAULT 5000
+            ) RETURNS bigint LANGUAGE sql AS $$
+                INSERT INTO net.http_request_queue (url, headers, body)
+                VALUES (url, headers, body) RETURNING id
+            $$;
+        END IF;
+    END IF;
+    IF to_regnamespace('vault') IS NULL THEN
+        CREATE SCHEMA vault;
+        CREATE TABLE vault.decrypted_secrets (name text PRIMARY KEY, decrypted_secret text);
     END IF;
 END
 $shim$;

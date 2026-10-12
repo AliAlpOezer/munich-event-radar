@@ -4,7 +4,6 @@ import ipaddress
 import re
 import socket
 from collections import Counter
-from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import date
 from urllib.parse import urljoin, urlsplit
@@ -26,14 +25,10 @@ from .runner import (
     extract,
     harvest_one,
     judge_events,
-    single_flight,
 )
-from .snapshots import SnapshotStore
 from .store import Store
 
 MAX_CANDIDATES = 6
-# The worker's fallback when a notification is lost (ADR 0005).
-POLL_S = 30.0
 MAX_FOLLOW = 30
 SHELL_TEXT = 300
 SHELL_LINKS = 5
@@ -242,7 +237,6 @@ class IntakeService:
     def __init__(self, settings: config.Settings, store: Store):
         self.settings = settings
         self.store = store
-        self.snapshots = SnapshotStore(settings.snapshot_dir)
         self.min_interval_s = 5.0
 
     # API side
@@ -268,32 +262,28 @@ class IntakeService:
             self.store.update_intake(intake_id, state="rejected", approved=False)
 
     # Worker side
-    def serve(self, poll_s: float = POLL_S, stop: Callable[[], bool] = lambda: False) -> None:
-        """Work queued intakes until `stop()`: woken by NOTIFY, with a poll as the fallback,
-        so a lost notification only delays work. One worker per store; crash-only, since an
-        intake cut off mid-step is queued again by the next start."""
-        with self.store.intake_listener() as wait:
+    def drain(self) -> int:
+        """Work every queued intake, then return how many (ADR 0006 D3). One drainer per
+        store at a time, so an intake cut off mid-step by a killed job is queued again
+        first."""
+        worked = 0
+        with self.store.lock("intake"):
             self.store.requeue_interrupted_intakes()
-            while not stop():
-                while (row := self.store.next_intake()) is not None:
-                    self.process(row["id"])
-                wait(poll_s)
+            while (row := self.store.next_intake()) is not None:
+                self.process(row["id"])
+                worked += 1
+        return worked
 
     def process(self, intake_id: int) -> None:
         log = self.store.log_intake
         user_agent = config.user_agent()
         fetcher = Fetcher(
             self.store,
-            self.snapshots,
             user_agent,
             self.min_interval_s,
             client=guarded_client(user_agent),
         )
-        renderer = (
-            render.Renderer(fetcher, self.snapshots, guard=check_host)
-            if render.available()
-            else None
-        )
+        renderer = render.Renderer(fetcher, guard=check_host) if render.available() else None
         try:
             row = self.store.intake(intake_id)
             if row["organiser_id"]:
@@ -329,7 +319,7 @@ class IntakeService:
         fetched = fetcher.get(url)
         if not fetched.ok:
             raise IntakeError(f"The homepage did not load: {fetched.error}.")
-        body = self.snapshots.get(fetched.content_hash)
+        body = self.store.page(fetched.content_hash)
         if "html" not in (fetched.content_type or "") and b"<html" not in body[:2000].lower():
             raise IntakeError(f"The homepage is not a web page ({fetched.content_type}).")
         self.store.log_intake(
@@ -374,7 +364,7 @@ class IntakeService:
         if about:
             fetched = fetcher.get(about)
             if fetched.ok:
-                about_text = html.text(self.snapshots.get(fetched.content_hash), about, 4000)
+                about_text = html.text(self.store.page(fetched.content_hash), about, 4000)
         link_list = "\n".join(f"- {label or '(no text)'}: {u}" for u, label in anchors[:120])
         user = (
             f"Submitted URL: {url}\nName given: {row['name'] or '-'}\n\n"
@@ -502,7 +492,7 @@ class IntakeService:
         fetched = fetcher.get(candidate.url)
         if not fetched.ok:
             return None
-        body = self.snapshots.get(fetched.content_hash)
+        body = self.store.page(fetched.content_hash)
         result = parse(candidate.url, fetched.content_type, body, Kind.LISTING)
         url, browser = candidate.url, False
         useful = result.events or result.follow or result.method == "ics@1"
@@ -515,7 +505,7 @@ class IntakeService:
             rendered = renderer.fetch(candidate.url)
             if rendered.ok:
                 url, browser = rendered.final_url or candidate.url, True
-                body = self.snapshots.get(rendered.content_hash)
+                body = self.store.page(rendered.content_hash)
                 result = parse(url, "text/html", body, Kind.LISTING)
                 useful = result.events or result.follow
         if not useful:
@@ -532,7 +522,7 @@ class IntakeService:
         counts: Counter = Counter()
         for source in self.store.organiser_sources(organiser_id):
             if not source["added_via"].startswith("link:"):
-                harvest_one(self.store, fetcher, self.snapshots, profile, source, counts, renderer)
+                harvest_one(self.store, fetcher, profile, source, counts, renderer)
         follow = [
             s
             for s in self.store.organiser_sources(organiser_id)
@@ -541,7 +531,7 @@ class IntakeService:
         if follow:
             log(intake_id, "harvesting", f"Reading {len(follow)} event pages.", "info")
         for source in follow:
-            harvest_one(self.store, fetcher, self.snapshots, profile, source, counts, renderer)
+            harvest_one(self.store, fetcher, profile, source, counts, renderer)
         urls = [s["url"] for s in self.store.organiser_sources(organiser_id)]
         router = self._router()
         if router and self.store.pending_extractions(1, urls):
@@ -552,9 +542,8 @@ class IntakeService:
                 "info",
             )
             extractor = Extractor(router, self.store)
-            extract(self.store, self.snapshots, extractor, profile, counts, urls)
-        with single_flight(self.settings.data_dir / "run.lock", wait=True):
-            judge_events(self.store, Judge(profile), Counter())
+            extract(self.store, extractor, profile, counts, urls)
+        judge_events(self.store, Judge(profile), Counter())
         tally = self._tally(set(urls))
         status = "active" if tally["upcoming"] else "dormant"
         self.store.set_organiser_status(organiser_id, status)

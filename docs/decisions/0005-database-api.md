@@ -1,6 +1,7 @@
 # ADR 0005: The database is the API
 
-**Status:** DECIDED, being built (steps 2 and 3 of ADR 0004)
+**Status:** DECIDED, being built (steps 2 and 3 of ADR 0004). D11-D14, the always-on intake
+worker, are superseded by ADR 0006 D3-D4 (2026-10-12): a dispatched job drains the queue
 **Date:** 2026-10-12
 **Inputs:** ADR 0004 (public hosting: Supabase, Cloudflare Pages, no API server, RLS on
 every table), its build steps 2-5, and Alp's go of 2026-10-09 ("lets start with the general

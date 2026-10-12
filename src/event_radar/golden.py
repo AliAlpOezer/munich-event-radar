@@ -1,7 +1,6 @@
 import json
 import mimetypes
 import shutil
-import tempfile
 from datetime import datetime
 from pathlib import Path
 from urllib.parse import urlsplit
@@ -14,7 +13,6 @@ from .model import Kind
 from .pipeline import ingest
 from .platforms import canonical, source_class
 from .resolve import local_date, resolve
-from .snapshots import SnapshotStore
 from .store import Store, now_iso
 
 
@@ -52,10 +50,9 @@ def replay(repo: Path, dsn: str | None, extract=None) -> dict:
     now = datetime.fromisoformat(golden["now"])
     profile = yaml.safe_load((repo / "profile.yaml").read_text(encoding="utf-8"))
     judge = Judge(profile)
-    with tempfile.TemporaryDirectory() as tmp, Store.scratch(dsn) as store:
-        snapshots = SnapshotStore(Path(tmp) / "snapshots")
+    with Store.scratch(dsn) as store:
         for url, content_type, body in _fixture_pages(repo):
-            digest = snapshots.put(body)
+            digest = store.save_page(body)
             result = ingest(
                 store,
                 url,
@@ -110,7 +107,7 @@ def _score(golden: dict, groups, judge: Judge, now: datetime, domains: tuple[str
     }
 
 
-def freeze(repo: Path, fetcher: Fetcher, snapshots: SnapshotStore) -> dict:
+def freeze(repo: Path, fetcher: Fetcher) -> dict:
     fixtures = repo / "eval" / "fixtures"
     fixtures.mkdir(parents=True, exist_ok=True)
     manifest_path = fixtures / "manifest.json"
@@ -123,7 +120,7 @@ def freeze(repo: Path, fetcher: Fetcher, snapshots: SnapshotStore) -> dict:
             entry = {"status": result.status, "error": result.error, "fetched_at": now_iso()}
             if result.ok:
                 name = result.content_hash[:16] + _extension(result.content_type)
-                (fixtures / name).write_bytes(snapshots.get(result.content_hash))
+                (fixtures / name).write_bytes(fetcher.store.page(result.content_hash))
                 entry |= {"file": name, "content_type": result.content_type}
             manifest[url] = entry
     tmp = manifest_path.with_suffix(".tmp")

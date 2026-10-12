@@ -1,0 +1,30 @@
+name: Set up the radar
+description: Python with the radar installed, and Chromium when a job renders pages.
+inputs:
+  extras:
+    description: Optional dependency groups to install, comma-separated
+    default: ""
+  browser:
+    description: Install Playwright's Chromium
+    default: "false"
+runs:
+  using: composite
+  steps:
+    - uses: actions/setup-python@v5
+      with:
+        python-version: "3.12"
+        cache: pip
+        cache-dependency-path: pyproject.toml
+    # Editable, so the radar finds profile.yaml and seed/ in the checkout.
+    - shell: bash
+      env:
+        EXTRAS: ${{ inputs.extras }}
+      run: pip install -e ".${EXTRAS:+[$EXTRAS]}"
+    - if: inputs.browser == 'true'
+      uses: actions/cache@v4
+      with:
+        path: ~/.cache/ms-playwright
+        key: playwright-${{ runner.os }}-${{ hashFiles('pyproject.toml') }}
+    - if: inputs.browser == 'true'
+      shell: bash
+      run: playwright install --with-deps chromium

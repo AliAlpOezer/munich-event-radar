@@ -1,0 +1,24 @@
+name: browse
+on:
+  # Weekly, Sunday 03:17 UTC: renders the sources that only show events with JavaScript.
+  schedule:
+    - cron: "17 3 * * 0"
+  workflow_dispatch:
+concurrency:
+  group: browse
+  cancel-in-progress: false
+permissions:
+  contents: read
+jobs:
+  browse:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 50
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup
+        with:
+          extras: browser
+          browser: "true"
+      - run: event-radar browse
+        env:
+          RADAR_DATABASE_URL: ${{ secrets.RADAR_DATABASE_URL }}
