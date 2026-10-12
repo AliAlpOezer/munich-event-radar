@@ -12,6 +12,7 @@ def user_agent() -> str:
 @dataclass(frozen=True)
 class Settings:
     repo_dir: Path
+    fixtures_dir: Path
     database_url: str | None
     openrouter_key: str | None
     llm_daily_cap: int
@@ -33,6 +34,7 @@ def load() -> Settings:
     _dotenv(repo / ".env")
     return Settings(
         repo_dir=repo,
+        fixtures_dir=Path(os.environ.get("RADAR_FIXTURES_DIR") or repo / "eval" / "fixtures"),
         database_url=os.environ.get("RADAR_DATABASE_URL"),
         openrouter_key=os.environ.get("OPENROUTER_API_KEY"),
         llm_daily_cap=int(os.environ.get("RADAR_LLM_DAILY_CAP", "35")),

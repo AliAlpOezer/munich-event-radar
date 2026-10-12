@@ -50,7 +50,7 @@ def board(settings: config.Settings, args: argparse.Namespace) -> None:
 
 def freeze(settings: config.Settings, args: argparse.Namespace) -> None:
     fetcher = Fetcher(Store(settings.database_url), config.user_agent())
-    manifest = golden.freeze(settings.repo_dir, fetcher)
+    manifest = golden.freeze(settings.repo_dir, settings.fixtures_dir, fetcher)
     print(json.dumps({u: e.get("file") or e.get("error") for u, e in manifest.items()}, indent=1))
 
 
@@ -59,7 +59,9 @@ def replay(settings: config.Settings, args: argparse.Namespace) -> None:
     if settings.openrouter_key:
         cache = Store(settings.database_url)
         extractor = Extractor(Router(settings.openrouter_key, cache, settings.llm_daily_cap), cache)
-    report = golden.replay(settings.repo_dir, settings.database_url, extractor)
+    report = golden.replay(
+        settings.repo_dir, settings.fixtures_dir, settings.database_url, extractor
+    )
     print(json.dumps(report, indent=1, ensure_ascii=False))
     raise SystemExit(0 if report["pass"] else 1)
 
@@ -82,7 +84,7 @@ def _parser() -> argparse.ArgumentParser:
         (browse, "render the due JavaScript-only sources"),
         (intakes, "work the queued intakes, then exit"),
         (board, "print the A and B events"),
-        (freeze, "save the golden pages to eval/fixtures"),
+        (freeze, "save the golden pages to RADAR_FIXTURES_DIR"),
         (replay, "score the golden events from the saved pages"),
     ):
         commands.add_parser(command.__name__, help=help_text).set_defaults(run=command)

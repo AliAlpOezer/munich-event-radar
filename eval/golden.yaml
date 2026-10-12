@@ -1,8 +1,9 @@
 # Q5 golden set (ADR 0002, "Acceptance check"). Tagged 2026-10-07 by the Q5 profile from
 # radar/event-radar.md, timeline/calendar.md and research/2026-10-07-*.md.
 # A is complete for the sweeps; B and C are a sample for tier reporting, not gated.
-# `pages` are frozen in eval/fixtures/ (see manifest.json). `closes` is the sourced
-# registration close; `year_stated: false` marks a date whose source omits the year.
+# `pages` are frozen in RADAR_FIXTURES_DIR (default eval/fixtures/, see manifest.json).
+# `closes` is the sourced registration close; `year_stated: false` marks a date whose
+# source omits the year.
 now: "2026-10-07T12:00:00+02:00"
 pass_bar: 0.9
 

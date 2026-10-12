@@ -29,8 +29,7 @@ def _extension(content_type: str | None) -> str:
     )
 
 
-def _fixture_pages(repo: Path):
-    fixtures = repo / "eval" / "fixtures"
+def _fixture_pages(fixtures: Path):
     manifest = json.loads((fixtures / "manifest.json").read_text())
     for url, entry in sorted(manifest.items()):
         if "file" in entry:
@@ -46,7 +45,7 @@ def _under(url: str, domains: tuple[str, ...]) -> bool:
     return (host(url) + urlsplit(url).path).startswith(domains)
 
 
-def replay(repo: Path, dsn: str | None, extractor: Extractor | None = None) -> dict:
+def replay(repo: Path, fixtures: Path, dsn: str | None, extractor: Extractor | None = None) -> dict:
     """Score the golden events from the saved pages, parsed in a scratch store. The
     extractor keeps its cache in the real store, so a replay asks the LLM only once."""
     golden = load(repo)
@@ -54,7 +53,7 @@ def replay(repo: Path, dsn: str | None, extractor: Extractor | None = None) -> d
     profile = Profile.load(repo / "profile.yaml")
     judge = Judge(profile)
     with Store.scratch(dsn) as store:
-        for url, content_type, body in _fixture_pages(repo):
+        for url, content_type, body in _fixture_pages(fixtures):
             digest = store.pages.save(body)
             source_class = profile.source_class(url)
             result = ingest(store, url, digest, content_type, body, Kind.EVENT_PAGE, source_class)
@@ -103,8 +102,7 @@ def _score(golden: dict, groups, judge: Judge, now: datetime, domains: tuple[str
     }
 
 
-def freeze(repo: Path, fetcher: Fetcher) -> dict:
-    fixtures = repo / "eval" / "fixtures"
+def freeze(repo: Path, fixtures: Path, fetcher: Fetcher) -> dict:
     fixtures.mkdir(parents=True, exist_ok=True)
     manifest_path = fixtures / "manifest.json"
     manifest = json.loads(manifest_path.read_text()) if manifest_path.exists() else {}
