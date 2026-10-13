@@ -41,6 +41,8 @@ export function openLogin(reason, from) {
       suggest organisations for the radar. Everything else is open without an account.</p>
     <div class="login-options">${Object.entries(PROVIDERS).map(([id, label]) =>
       `<button type="button" class="btn" data-provider="${id}">Continue with ${label}</button>`).join("")}</div>
+    <p class="note">Google or GitHub shares your name, email address and profile picture with the radar.
+      The <a href="privacy">privacy notice</a> says what is kept and how to delete it.</p>
     <p class="form-error" id="login-error" role="alert" hidden></p>`);
   for (const button of document.querySelectorAll("[data-provider]")) {
     button.addEventListener("click", () => logIn(button.dataset.provider, button));
