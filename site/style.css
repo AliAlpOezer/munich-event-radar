@@ -577,7 +577,8 @@ td.num { font-variant-numeric: tabular-nums; white-space: nowrap; }
 
 /* Adding an organisation */
 .add-org { margin-left: auto; }
-.login-options { display: grid; gap: 8px; }
+.login-options { display: grid; gap: 8px; max-width: 400px; }
+.google-slot { min-height: 44px; display: flex; align-items: center; justify-content: center; }
 .login-options .btn { justify-content: center; min-height: 44px; }
 .intakes { margin-top: 16px; display: grid; gap: 8px; }
 .intakes h2 { font-size: 0.85rem; color: var(--muted); margin: 0; }

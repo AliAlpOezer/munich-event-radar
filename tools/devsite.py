@@ -313,6 +313,8 @@ def handler(auth: Auth, postgrest_port: int, api_schema: str):
                 f'export const SUPABASE_URL = "{self.origin()}";\n'
                 f'export const SUPABASE_KEY = "{API_KEY}";\n'
                 f'export const API_SCHEMA = "{api_schema}";\n'
+                # No Google button locally: Google accepts only the origins its client lists.
+                'export const GOOGLE_CLIENT_ID = "";\n'
             )
             self.send(200, text.encode(), {"Content-Type": "text/javascript", **self.policy("/")})
 

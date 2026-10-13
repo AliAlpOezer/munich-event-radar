@@ -47,6 +47,13 @@ export async function logIn(provider, returnTo) {
   if (error) throw new Error(error.message);
 }
 
+/* Logs in with an ID token the provider issued on this page (google.js); `nonce` is the one
+   whose hash the token carries. */
+export async function logInWithIdToken(provider, token, nonce) {
+  const { error } = await client.auth.signInWithIdToken({ provider, token, nonce });
+  if (error) throw new Error(error.message);
+}
+
 /* Ends the session in this browser only. */
 export async function logOut() {
   const { error } = await client.auth.signOut({ scope: "local" });

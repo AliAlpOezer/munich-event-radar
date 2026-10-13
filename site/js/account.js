@@ -1,8 +1,10 @@
 /* Logging in with GitHub or Google through Supabase Auth (ADR 0004), and the account button. */
 
+import { GOOGLE_CLIENT_ID } from "../config.js";
 import * as api from "./api.js";
 import { $, esc } from "./dom.js";
 import { fillDrawer, isOpen, showDrawer } from "./drawer.js";
+import { renderGoogleButton } from "./google.js";
 import { state } from "./state.js";
 import { stash, unstash } from "./storage.js";
 
@@ -40,12 +42,37 @@ export function openLogin(reason, from) {
     <p class="lede">Logging in lets you keep your own applied, registered or skipped status on events and
       suggest organisations for the radar. Everything else is open without an account.</p>
     <div class="login-options">${Object.entries(PROVIDERS).map(([id, label]) =>
-      `<button type="button" class="btn" data-provider="${id}">Continue with ${label}</button>`).join("")}</div>
+      id === "google" && GOOGLE_CLIENT_ID ? `<div class="google-slot" id="google-slot"></div>`
+        : `<button type="button" class="btn" data-provider="${id}">Continue with ${label}</button>`).join("")}</div>
     <p class="note">Google or GitHub shares your name, email address and profile picture with the radar.
       The <a href="privacy">privacy notice</a> says what is kept and how to delete it.</p>
     <p class="form-error" id="login-error" role="alert" hidden></p>`);
   for (const button of document.querySelectorAll("[data-provider]")) {
     button.addEventListener("click", () => logIn(button.dataset.provider, button));
+  }
+  if (GOOGLE_CLIENT_ID) showGoogle($("google-slot"));
+}
+
+/* Google's own button where it loads, else the redirect through Supabase. */
+async function showGoogle(slot) {
+  try {
+    await renderGoogleButton(slot, GOOGLE_CLIENT_ID, logInWithGoogle);
+  } catch {
+    if (!slot.isConnected) return;
+    slot.outerHTML = `<button type="button" class="btn" data-provider="google">Continue with Google</button>`;
+    const button = document.querySelector("[data-provider=google]");
+    button.addEventListener("click", () => logIn("google", button));
+  }
+}
+
+async function logInWithGoogle(token, nonce) {
+  try {
+    await api.logInWithIdToken("google", token, nonce);
+  } catch (error) {
+    const note = $("login-error");
+    if (!note) return;
+    note.textContent = `Could not log in: ${error.message}`;
+    note.hidden = false;
   }
 }
 
