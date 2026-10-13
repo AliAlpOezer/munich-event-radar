@@ -48,6 +48,7 @@ export async function renderGoogleButton(slot, clientId, onToken) {
     text: "continue_with",
     shape: "rectangular",
     logo_alignment: "center",
+    locale: "en",
     width: Math.min(400, Math.round(slot.getBoundingClientRect().width)),
   });
 }
