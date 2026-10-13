@@ -1,0 +1,6 @@
+# Cloudflare Pages project `munichai` (ADR 0004). With `pages_build_output_dir` set, this file,
+# not the dashboard, is the project's build configuration; only `site/` is published.
+# https://developers.cloudflare.com/pages/functions/wrangler-configuration/
+name = "munichai"
+pages_build_output_dir = "site"
+compatibility_date = "2026-10-01"
