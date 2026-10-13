@@ -2,7 +2,7 @@
 # tools/devsite.py applies this file too, so local runs meet the same policy.
 # Files without a version in their name keep Pages' default: browsers revalidate each time.
 /*
-  Content-Security-Policy: default-src 'self'; script-src 'self'; style-src 'self' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' https: data:; connect-src 'self' https://uvczfqmaczgdbmvusxqt.supabase.co; base-uri 'none'; form-action 'self'; frame-ancestors 'none'; object-src 'none'
+  Content-Security-Policy: default-src 'self'; script-src 'self'; style-src 'self'; font-src 'self'; img-src 'self' https: data:; connect-src 'self' https://uvczfqmaczgdbmvusxqt.supabase.co; base-uri 'none'; form-action 'self'; frame-ancestors 'none'; object-src 'none'
   X-Content-Type-Options: nosniff
   Referrer-Policy: strict-origin-when-cross-origin
   Permissions-Policy: camera=(), microphone=(), geolocation=()

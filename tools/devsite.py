@@ -49,6 +49,7 @@ TYPES = {
     ".css": "text/css",
     ".svg": "image/svg+xml",
     ".webp": "image/webp",
+    ".woff2": "font/woff2",
 }
 HOP_BY_HOP = {"connection", "keep-alive", "transfer-encoding", "content-length", "content-encoding"}
 
