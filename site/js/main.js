@@ -9,6 +9,7 @@ import { closeDrawer, isOpen } from "./drawer.js";
 import { openEvent, refreshEvent } from "./event-detail.js";
 import { loadIntakes, openAddForm, openIntake, renderIntakes } from "./intakes.js";
 import { renderOrganisations, showOrganisation, wireOrganisations } from "./organisations.js";
+import { toggleStar } from "./star.js";
 import { changed, onChange, state } from "./state.js";
 import { wireTheme } from "./theme.js";
 import { renderHero, renderOrganiserFilter, renderTimeline, showOrganiserEvents, wireTimeline } from "./timeline.js";
@@ -89,6 +90,8 @@ function wire() {
   wireTheme();
   document.addEventListener("click", (e) => {
     const target = e.target;
+    const star = target.closest("[data-star]");
+    if (star) return toggleStar(star);
     const row = target.closest(".event[data-key]");
     if (row) return openEvent(row.dataset.key, row);
     const intakeRow = target.closest("[data-intake]");

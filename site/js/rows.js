@@ -1,9 +1,11 @@
-/* One event as a row, shared by the timeline and the organisation cards. */
+/* One event as a row, shared by the timeline and the organisation cards. The star is the
+   row's sibling, since one button cannot hold another. */
 
 import { esc } from "./dom.js";
 import {
   DROP_LABEL, STATUS_LABEL, TIER_MEANING, isDropped, isPast, organiserNames, registration, startOf, val, venueText,
 } from "./facts.js";
+import { starButton } from "./star.js";
 import { state } from "./state.js";
 import { formatDay, today } from "./time.js";
 
@@ -42,12 +44,12 @@ export function eventRow(ev, { withDate = false } = {}) {
   if (ev.stale) tags.push(`<span class="chip warn" title="Not seen in the latest run">Not seen lately</span>`);
   const meta = [organiserNames(ev, state.orgById), venueText(ev)].filter(Boolean).join(" · ");
   const classes = ["event", `tier-${ev.tier || "none"}`, isDropped(ev) || isPast(ev) ? "dropped" : ""].join(" ");
-  return `<li><button type="button" class="${classes}" data-key="${esc(ev.key)}">
+  return `<li class="event-item"><button type="button" class="${classes}" data-key="${esc(ev.key)}">
     <span class="time">${esc(time)}</span>
     ${tierBadge(ev)}
     <span class="main"><span class="title">${esc(val(ev, "title") || "Untitled event")}</span>
       ${meta ? `<span class="meta">${esc(meta)}</span>` : ""}</span>
     <span class="tags">${tags.join("")}</span>
     ${cover(ev)}
-  </button></li>`;
+  </button>${starButton(ev)}</li>`;
 }

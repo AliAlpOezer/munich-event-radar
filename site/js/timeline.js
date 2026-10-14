@@ -1,27 +1,12 @@
 /* The timeline tab: upcoming events by month and day, with search and filters. */
 
 import { $, debounce, esc } from "./dom.js";
-import { TIERS, isDropped, isPast, isUpcoming, placeDay, searchText, sortTime } from "./facts.js";
+import { TIERS, isDropped, isPast, isUpcoming, placeDay, sortTime } from "./facts.js";
+import { visibleEvents } from "./filter.js";
 import { eventRow } from "./rows.js";
 import { DEFAULT_FILTERS, state } from "./state.js";
 import { persist } from "./storage.js";
 import { formatDay, today } from "./time.js";
-
-function visibleEvents() {
-  const f = state.filters;
-  const q = f.q.trim().toLowerCase();
-  return state.events.filter((ev) => {
-    if (isDropped(ev)) {
-      if (!f.dropped) return false;
-    } else if (isPast(ev)) {
-      if (!f.past) return false;
-    } else if (!f.tiers.includes(ev.tier)) {
-      return false;
-    }
-    if (f.org && !ev.organiser_ids.includes(Number(f.org))) return false;
-    return !q || searchText(ev, state.orgById).includes(q);
-  });
-}
 
 export function renderHero() {
   const upcoming = state.events.filter(isUpcoming);
@@ -49,16 +34,23 @@ export function renderTimeline() {
   $("show-past").querySelector(".n").textContent = state.events.filter((ev) => isPast(ev) && !isDropped(ev)).length;
   $("show-dropped").setAttribute("aria-pressed", String(state.filters.dropped));
   $("show-dropped").querySelector(".n").textContent = state.events.filter(isDropped).length;
+  $("starred-field").hidden = !state.user;
+  $("show-starred").setAttribute("aria-pressed", String(state.filters.starred));
+  $("show-starred").querySelector(".n").textContent = upcoming.filter((ev) => ev.starred).length;
 
-  const shown = visibleEvents()
+  const shown = visibleEvents(state.events, state.filters, { orgById: state.orgById, loggedIn: Boolean(state.user) })
     .map((ev) => ({ ev, day: placeDay(ev), time: sortTime(ev) }))
     .sort((a, b) => (a.day || "9999").localeCompare(b.day || "9999") || a.time.localeCompare(b.time)
       || TIERS.indexOf(a.ev.tier) - TIERS.indexOf(b.ev.tier));
   $("timeline-count").textContent = `Showing ${shown.length} of ${state.events.length} events`;
   if (!shown.length) {
-    $("timeline-list").innerHTML = `<div class="empty"><span>No events match these filters.</span>
-      <button type="button" class="btn" id="reset-filters">Reset filters</button></div>`;
-    $("reset-filters").addEventListener("click", () => setFilters({ ...DEFAULT_FILTERS }));
+    const noStars = state.user && state.filters.starred && !state.events.some((ev) => ev.starred);
+    $("timeline-list").innerHTML = noStars
+      ? `<div class="empty"><span>No starred events yet. Star an event to keep it here.</span>
+        <button type="button" class="btn" id="reset-filters">Show every event</button></div>`
+      : `<div class="empty"><span>No events match these filters.</span>
+        <button type="button" class="btn" id="reset-filters">Reset filters</button></div>`;
+    $("reset-filters").addEventListener("click", () => setFilters(noStars ? { starred: false } : { ...DEFAULT_FILTERS }));
     return;
   }
   const months = new Map();
@@ -127,4 +119,7 @@ export function wireTimeline() {
   }
   $("show-past").addEventListener("click", () => update({ past: !state.filters.past }));
   $("show-dropped").addEventListener("click", () => update({ dropped: !state.filters.dropped }));
+  /* Like an organiser's events, the starred ones show in every tier. */
+  $("show-starred").addEventListener("click", () =>
+    update(state.filters.starred ? { starred: false } : { starred: true, tiers: [...TIERS] }));
 }

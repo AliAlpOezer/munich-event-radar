@@ -3,7 +3,7 @@
 import { TIERS } from "./facts.js";
 import { restore } from "./storage.js";
 
-export const DEFAULT_FILTERS = { q: "", org: "", tiers: TIERS, past: false, dropped: false };
+export const DEFAULT_FILTERS = { q: "", org: "", tiers: TIERS, past: false, dropped: false, starred: false };
 
 export const state = {
   events: [],

@@ -66,6 +66,15 @@
             <button type="button" class="toggle" id="show-dropped" aria-pressed="false">Online or outside Munich <span class="n"></span></button>
           </div>
         </div>
+        <div class="field" role="group" aria-labelledby="only-label" id="starred-field" hidden>
+          <span id="only-label">Show only</span>
+          <div class="toggles">
+            <button type="button" class="toggle" id="show-starred" aria-pressed="false">
+              <!-- Phosphor Icons 2.1.1, fill weight (MIT) -->
+              <svg class="star-icon" viewBox="0 0 256 256" fill="currentColor" aria-hidden="true"><path d="M234.29,114.85l-45,38.83L203,211.75a16.4,16.4,0,0,1-24.5,17.82L128,198.49,77.47,229.57A16.4,16.4,0,0,1,53,211.75l13.76-58.07-45-38.83A16.46,16.46,0,0,1,31.08,86l59-4.76,22.76-55.08a16.36,16.36,0,0,1,30.27,0l22.75,55.08,59,4.76a16.46,16.46,0,0,1,9.37,28.86Z"/></svg>
+              Starred <span class="n"></span></button>
+          </div>
+        </div>
       </div>
       <p class="count" id="timeline-count"></p>
       <div id="timeline-list" class="timeline"></div>
@@ -110,10 +119,11 @@
     <div class="drawer-head">
       <span class="tier-badge" id="drawer-tier"></span>
       <h2 id="drawer-title"></h2>
-      <button type="button" class="btn ghost" id="drawer-close">Close</button>
+      <div class="drawer-actions"><span class="drawer-tools" id="drawer-tools"></span><button type="button" class="btn ghost" id="drawer-close">Close</button></div>
     </div>
     <div class="drawer-body" id="drawer-body"></div>
   </aside>
+  <div class="toast-region" role="status" aria-live="polite"><p class="toast" id="toast" hidden></p></div>
 
   <script src="vendor/supabase-js-2.117.2.js" defer></script>
   <script type="module" src="js/main.js"></script>

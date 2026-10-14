@@ -37,6 +37,7 @@ export const intakes = () => read(client.from("intakes").select("*").order("id",
 export const intake = (id) => read(client.from("intakes").select("*").eq("id", id).maybeSingle());
 
 export const setStatus = (key, status) => read(client.rpc("set_status", { event_key: key, status }));
+export const setStar = (key, starred) => read(client.rpc("set_star", { event_key: key, starred }));
 export const suggest = ({ url, eventsUrl, name }) =>
   read(client.rpc("suggest_organisation", { url, events_url: eventsUrl || null, name: name || null }));
 export const decide = (id, approve) => read(client.rpc("decide_intake", { intake_id: id, approve }));

@@ -4,8 +4,8 @@ Finds, ranks and tracks the AI/ML, startup and tech events, organisations, confe
 programmes in Munich, with their registration windows. A harvester fetches organiser pages,
 ticket platforms and calendars, parses them (structured data first, an LLM only where a
 page has no registration fields), merges duplicates and ranks each event A, B or C against
-`profile.yaml`. A static page shows the board; logging in adds a personal status per event
-and lets you suggest an organisation.
+`profile.yaml`. A static page shows the board; logging in adds a personal star and status per
+event and lets you suggest an organisation.
 
 ## Layout
 
@@ -18,7 +18,7 @@ and lets you suggest an organisation.
 | `eval/golden.yaml` | The golden set the judge is scored against |
 | `tests/` | pytest on hand-written fixtures, and node tests for the page's pure modules |
 | `tools/devsite.py` | A local stand-in for Supabase |
-| `docs/decisions/` | ADRs, from the architecture (0002) to hosting (0004-0006) |
+| `docs/decisions/` | ADRs, from the architecture (0002) to hosting (0004-0006) and stars (0007) |
 
 The golden eval replays frozen copies of third-party pages. They are not published here:
 `event-radar replay` reads them from `RADAR_FIXTURES_DIR` (ADR 0006 D7).
