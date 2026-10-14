@@ -95,6 +95,7 @@ def test_anyone_reads_the_board(store, board):
         [org] = db.execute("SELECT * FROM organisers").fetchall()
         me = db.execute("SELECT me()").fetchone()["me"]
     assert len(events) == 4 and {e["user_status"] for e in events} == {"none"}
+    assert {e["starred"] for e in events} == {False}
     assert events[0]["sources"] == [
         {"url": "https://luma.com/munichnlp", "class": "TICKET", "organiser_id": org["id"]},
         {"url": "https://other.example/list", "class": None, "organiser_id": None},
@@ -159,11 +160,19 @@ def test_private_tables_and_writes_are_closed(store, board, users):
                 ).format(target(store.schema, "user_state")),
                 (user, board["E0"]),
             )
+        with pytest.raises(errors.InsufficientPrivilege), api(store, who) as db:
+            db.execute(
+                sql.SQL("INSERT INTO {} (user_id, event_key) VALUES (%s, %s)").format(
+                    target(store.schema, "star")
+                ),
+                (user, board["E0"]),
+            )
     for view in ("runs", "intakes"):
         with pytest.raises(errors.InsufficientPrivilege), api(store) as db:
             db.execute(sql.SQL("SELECT * FROM {}").format(target(view)))
     for call in (
         "SELECT set_status('x', 'applied')",
+        "SELECT set_star('x', true)",
         "SELECT suggest_organisation('https://a.org')",
     ):
         with pytest.raises(errors.InsufficientPrivilege), api(store) as db:
@@ -217,6 +226,50 @@ def test_each_user_keeps_their_own_status(store, board, users):
     with pytest.raises(errors.ForeignKeyViolation), api(store, alice) as db:
         db.execute("SELECT set_status('nope', 'applied')")
     assert {e["user_status"] for e in store.events.all()} == {"none"}
+
+
+def _starred(store, user, key):
+    with api(store, user) as db:
+        row = db.execute("SELECT starred FROM events WHERE key = %s", (key,)).fetchone()
+    return row["starred"]
+
+
+def _stars(store):
+    with store.tx() as db:
+        return db.execute("SELECT user_id, event_key, starred_at FROM star").fetchall()
+
+
+def test_each_user_keeps_their_own_stars(store, board, users):
+    alice, bob = users(), users()
+    key = board["E0"]
+    with api(store, alice) as db:
+        assert db.execute("SELECT set_star(%s, true)", (key,)).fetchone()["set_star"] is True
+    [first] = _stars(store)
+    assert _starred(store, alice, key) is True
+    assert _starred(store, bob, key) is False and _starred(store, None, key) is False
+    with api(store, bob) as db:
+        assert (
+            db.execute(
+                sql.SQL("SELECT * FROM {}").format(sql.Identifier(store.schema, "star"))
+            ).fetchall()
+            == []
+        )
+    with api(store, alice) as db:
+        db.execute("SELECT set_star(%s, true)", (key,))  # a repeat keeps the first star
+    assert _stars(store) == [first]
+    with api(store, alice) as db:
+        assert db.execute("SELECT set_star(%s, false)", (key,)).fetchone()["set_star"] is False
+        db.execute("SELECT set_star(%s, false)", (key,))  # unstarring twice is a no-op
+    assert _starred(store, alice, key) is False and _stars(store) == []
+    with pytest.raises(errors.InvalidParameterValue), api(store, alice) as db:
+        db.execute("SELECT set_star(%s, NULL)", (key,))
+    with pytest.raises(errors.ForeignKeyViolation), api(store, alice) as db:
+        db.execute("SELECT set_star('nope', true)")
+    with api(store, alice) as db:
+        db.execute("SELECT set_star(%s, true)", (key,))
+    with store.tx() as db:
+        db.execute("DELETE FROM auth.users WHERE id = %s", (alice,))
+    assert _stars(store) == []
 
 
 def test_a_suggestion_waits_for_an_admin(store, users):
@@ -291,7 +344,7 @@ def test_the_owner_claims_the_statuses_kept_before_logins(store, board, users):
         store.users.grant_admin("second@example.org", owner=True)
 
 
-def test_a_merge_keeps_each_users_status(store, users):
+def test_a_merge_keeps_each_users_status_and_stars(store, users):
     store.events.save(
         [JudgedEvent({"url:a"}, {"title": {"value": "A"}}, "url", _verdict(), [])]
         + [JudgedEvent({"url:b"}, {"title": {"value": "B"}}, "url", _verdict(), [])]
@@ -305,9 +358,12 @@ def test_a_merge_keeps_each_users_status(store, users):
     alice, bob = users(), users()
     with api(store, alice) as db:
         db.execute("SELECT set_status(%s, 'skipped')", (keys["B"],))
+        db.execute("SELECT set_star(%s, true)", (keys["B"],))
     with api(store, bob) as db:
         db.execute("SELECT set_status(%s, 'applied')", (keys["A"],))
         db.execute("SELECT set_status(%s, 'skipped')", (keys["B"],))
+        db.execute("SELECT set_star(%s, true)", (keys["A"],))
+        db.execute("SELECT set_star(%s, true)", (keys["B"],))
     _unclaimed(store, keys["B"], "registered")
     counts = store.events.save(
         [JudgedEvent({"url:a", "url:b"}, {"title": {"value": "A"}}, "url", _verdict(), [])]
@@ -317,6 +373,8 @@ def test_a_merge_keeps_each_users_status(store, users):
     assert event["key"] == keys["A"] and event["user_status"] == "registered"
     assert _status(store, alice, keys["A"]) == "skipped"
     assert _status(store, bob, keys["A"]) == "applied"
+    assert _starred(store, alice, keys["A"]) and _starred(store, bob, keys["A"])
+    assert len(_stars(store)) == 2
 
 
 def test_the_api_is_rebuilt_only_when_it_changes(store):

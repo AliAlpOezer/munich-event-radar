@@ -1,6 +1,6 @@
 import uuid
 
-from psycopg import Connection
+from psycopg import Connection, sql
 from psycopg.types.json import Jsonb
 
 from ..model import JudgedEvent
@@ -73,14 +73,17 @@ class Events(Repository):
 
 def _merge(db: Connection, loser: str, into: str) -> None:
     db.execute("UPDATE event_alias SET event_key = %s WHERE event_key = %s", (into, loser))
-    # Each user's status moves to the survivor unless they set one there; deleting the
-    # loser cascades to whatever did not move.
-    db.execute(
-        "UPDATE user_state l SET event_key = %(key)s WHERE l.event_key = %(loser)s"
-        " AND NOT EXISTS (SELECT FROM user_state w"
-        "                 WHERE w.user_id = l.user_id AND w.event_key = %(key)s)",
-        {"key": into, "loser": loser},
-    )
+    # Each user's status and star move to the survivor unless they set one there; deleting
+    # the loser cascades to whatever did not move.
+    for table in ("user_state", "star"):
+        db.execute(
+            sql.SQL(
+                "UPDATE {table} l SET event_key = %(key)s WHERE l.event_key = %(loser)s"
+                " AND NOT EXISTS (SELECT FROM {table} w"
+                "                 WHERE w.user_id = l.user_id AND w.event_key = %(key)s)"
+            ).format(table=sql.Identifier(table)),
+            {"key": into, "loser": loser},
+        )
     db.execute(
         "UPDATE user_state_unclaimed SET event_key = %(key)s"
         " WHERE event_key = %(loser)s AND NOT EXISTS"
