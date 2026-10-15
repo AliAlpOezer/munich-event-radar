@@ -13,6 +13,7 @@ SELECT
     COALESCE(e.tier_reasons, '[]') AS reasons,
     e.merge_basis,
     COALESCE(u.status, 'none') AS user_status,
+    st.event_key IS NOT NULL AS starred,
     e.first_seen,
     e.updated_at,
     COALESCE(e.updated_at < last_ok_run_at(), false) AS stale,
@@ -24,6 +25,7 @@ SELECT
     s.organiser_ids
 FROM event e
 LEFT JOIN user_state u ON u.event_key = e.key AND u.user_id = (SELECT auth.uid())
+LEFT JOIN star st ON st.event_key = e.key AND st.user_id = (SELECT auth.uid())
 CROSS JOIN LATERAL (
     SELECT
         COALESCE(jsonb_agg(jsonb_build_object(
@@ -93,6 +95,29 @@ BEGIN
     ON CONFLICT (user_id, event_key)
         DO UPDATE SET status = excluded.status, updated_at = excluded.updated_at;
     RETURN set_status.status;
+END
+$$;
+
+-- Idempotent, unlike a toggle: a repeated or retried call cannot undo the one before.
+CREATE FUNCTION set_star(event_key text, starred boolean) RETURNS boolean
+LANGUAGE plpgsql SECURITY DEFINER SET search_path FROM CURRENT AS $$
+#variable_conflict use_column
+DECLARE
+    uid uuid := auth.uid();
+BEGIN
+    IF uid IS NULL THEN
+        RAISE EXCEPTION 'Log in to star an event' USING ERRCODE = 'insufficient_privilege';
+    END IF;
+    IF set_star.starred IS NULL THEN
+        RAISE EXCEPTION 'Say whether to star the event' USING ERRCODE = 'invalid_parameter_value';
+    END IF;
+    IF set_star.starred THEN
+        INSERT INTO star (user_id, event_key) VALUES (uid, set_star.event_key)
+        ON CONFLICT (user_id, event_key) DO NOTHING;
+    ELSE
+        DELETE FROM star WHERE user_id = uid AND event_key = set_star.event_key;
+    END IF;
+    RETURN set_star.starred;
 END
 $$;
 
@@ -185,5 +210,5 @@ $$;
 GRANT SELECT ON events, organisers TO anon, authenticated;
 GRANT SELECT ON runs, intakes TO authenticated;
 GRANT EXECUTE ON FUNCTION me(), board_status() TO anon, authenticated;
-GRANT EXECUTE ON FUNCTION set_status(text, text), suggest_organisation(text, text, text),
-    decide_intake(bigint, boolean) TO authenticated;
+GRANT EXECUTE ON FUNCTION set_status(text, text), set_star(text, boolean),
+    suggest_organisation(text, text, text), decide_intake(bigint, boolean) TO authenticated;

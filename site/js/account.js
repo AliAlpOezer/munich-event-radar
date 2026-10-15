@@ -12,6 +12,7 @@ const RETURN_KEY = "radar.afterLogin";
 const PROVIDERS = { github: "GitHub", google: "Google" };
 const REASONS = {
   status: "Log in to keep your own status on events.",
+  star: "Log in to star events and keep your own list.",
   suggest: "Log in to suggest an organisation.",
   intake: "Log in to follow your suggestion.",
 };
@@ -39,8 +40,8 @@ export function openLogin(reason, from) {
   showDrawer({ mode: "login", title: "Log in", hash: "#account", from });
   fillDrawer(`
     ${REASONS[reason] ? `<p class="note warn">${esc(REASONS[reason])}</p>` : ""}
-    <p class="lede">Logging in lets you keep your own applied, registered or skipped status on events and
-      suggest organisations for the radar. Everything else is open without an account.</p>
+    <p class="lede">Logging in lets you star events, keep your own applied, registered or skipped status on
+      them, and suggest organisations for the radar. Everything else is open without an account.</p>
     <div class="login-options">${Object.entries(PROVIDERS).map(([id, label]) =>
       id === "google" && GOOGLE_CLIENT_ID ? `<div class="google-slot" id="google-slot"></div>`
         : `<button type="button" class="btn" data-provider="${id}">Continue with ${label}</button>`).join("")}</div>

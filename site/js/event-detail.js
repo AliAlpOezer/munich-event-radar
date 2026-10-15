@@ -2,10 +2,11 @@
 
 import * as api from "./api.js";
 import { $, esc } from "./dom.js";
-import { closeDrawer, fillDrawer, isOpen, open, setHeading, showDrawer } from "./drawer.js";
+import { closeDrawer, fillDrawer, fillTools, isOpen, open, setHeading, showDrawer } from "./drawer.js";
 import {
   DROP_LABEL, STATUS_ACTION, STATUS_LABEL, TIER_MEANING, TRANSITIONS, humanReason, organiserNames, registration, val, when,
 } from "./facts.js";
+import { starButton } from "./star.js";
 import { changed, state } from "./state.js";
 import { formatMoment, relative } from "./time.js";
 
@@ -57,6 +58,7 @@ function render(ev) {
   if (ev.stale) notes.push("Not seen in the latest run: it may have been removed or changed.");
 
   setHeading(val(ev, "title") || "Untitled event", badge(ev));
+  fillTools(starButton(ev, { labelled: true }));
   fillDrawer(`
     ${ev.cover ? `<figure class="drawer-cover"><img src="${esc(ev.cover)}" alt="" referrerpolicy="no-referrer"></figure>` : ""}
     ${notes.map((n) => `<p class="note warn">${esc(n)}</p>`).join("")}

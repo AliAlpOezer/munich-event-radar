@@ -25,6 +25,7 @@ export function showDrawer({ mode, id = null, title, badge = null, hash, from = 
   open.id = id;
   if (from) opener = from;
   setHeading(title, badge);
+  fillTools("");
   history.replaceState(null, "", hash);
   $("drawer").hidden = false;
   $("scrim").hidden = false;
@@ -33,6 +34,11 @@ export function showDrawer({ mode, id = null, title, badge = null, hash, from = 
 
 export const fillDrawer = (html) => {
   $("drawer-body").innerHTML = html;
+};
+
+/* Buttons beside Close that belong to what is open, such as an event's star. */
+export const fillTools = (html) => {
+  $("drawer-tools").innerHTML = html;
 };
 
 export function closeDrawer() {
