@@ -6,7 +6,7 @@ from datetime import UTC, datetime
 
 import httpx
 
-from .extract import Extractor
+from .extract import Extractor, triage
 from .extract.router import AllModelsFailed, BudgetExhausted, DailyCapReached
 from .fetch import Fetcher
 from .judge import Judge
@@ -101,7 +101,15 @@ class Harvester:
         if self.extractor is None:
             return
         self.counts["llm_superseded"] += self.store.extraction.drop_superseded()
-        for job in self.store.extraction.pending(limit=LLM_BATCH, urls=urls):
+        try:
+            jobs = self._worth_extracting(self.store.extraction.pending(LLM_BATCH, urls))
+        except (BudgetExhausted, DailyCapReached):
+            self.counts["llm_deferred"] += 1
+            return
+        except (AllModelsFailed, httpx.HTTPError):
+            self.counts["llm_failed"] += 1
+            return
+        for job in jobs:
             if until and datetime.now(UTC) >= until:
                 self.counts["llm_deferred"] += 1
                 return
@@ -124,6 +132,38 @@ class Harvester:
             self.store.observations.add(digest, url, self.profile.source_class(url), method, events)
             self.store.extraction.finish(digest, url, JobState.DONE)
             self.counts["llm_done"] += 1
+
+    def _worth_extracting(self, jobs: list[dict]) -> list[dict]:
+        """The jobs worth an extraction call (ADR 0010): the judge skips the events it
+        drops, an AI-focused organiser's pages need no question, and the LLM sorts the
+        rest in batches. The others become `skipped`."""
+        now = datetime.now(UTC)
+        focused = self.store.sources.focused_urls()
+        asked: dict[tuple[str, str], str] = {}
+        candidates: dict[str, dict] = {}
+        kept: set[tuple[str, str]] = set()
+        for job in jobs:
+            ident = (job["snapshot_hash"], job["url"])
+            candidate, fields = triage.candidate(job["url"], self.store.pages.body(ident[0]))
+            ai_focus = job["url"] in focused
+            if fields and self.judge.judge(fields, now, ai_focus=ai_focus).drop_reason:
+                self.store.extraction.skip(*ident)
+                self.counts["llm_skipped"] += 1
+            elif ai_focus:
+                kept.add(ident)
+            else:
+                asked[ident] = triage.key(candidate)
+                candidates.setdefault(asked[ident], candidate)
+        verdicts = (
+            self.extractor.relevant(candidates, self.profile.any_topic_kinds) if candidates else {}
+        )
+        for ident, key in asked.items():
+            if verdicts.get(key, True):
+                kept.add(ident)
+            else:
+                self.store.extraction.skip(*ident)
+                self.counts["llm_unrelated"] += 1
+        return [j for j in jobs if (j["snapshot_hash"], j["url"]) in kept]
 
     def judge_events(self) -> None:
         """Rewrite the events from all observations; one job at a time (ADR 0006 D4)."""

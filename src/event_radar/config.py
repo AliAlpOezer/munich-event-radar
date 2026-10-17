@@ -16,6 +16,8 @@ class Settings:
     database_url: str | None
     openrouter_key: str | None
     llm_daily_cap: int
+    groq_key: str | None
+    groq_daily_cap: int
     healthcheck_url: str | None
 
 
@@ -38,5 +40,7 @@ def load() -> Settings:
         database_url=os.environ.get("RADAR_DATABASE_URL"),
         openrouter_key=os.environ.get("OPENROUTER_API_KEY"),
         llm_daily_cap=int(os.environ.get("RADAR_LLM_DAILY_CAP", "35")),
+        groq_key=os.environ.get("GROQ_API_KEY") or None,
+        groq_daily_cap=int(os.environ.get("RADAR_GROQ_DAILY_CAP", "30")),
         healthcheck_url=os.environ.get("HEALTHCHECK_URL"),
     )

@@ -66,7 +66,7 @@ One-time setup:
 
 | Where | What |
 |---|---|
-| GitHub, Settings > Secrets > Actions | `RADAR_DATABASE_URL` (Supabase session pooler) and `OPENROUTER_API_KEY` |
+| GitHub, Settings > Secrets > Actions | `RADAR_DATABASE_URL` (Supabase session pooler) and `OPENROUTER_API_KEY`; optionally `GROQ_API_KEY`, the fallback when OpenRouter is spent or down (ADR 0010) |
 | GitHub, a fine-grained token | this repository only, Actions: read and write; it dispatches `intake.yml` |
 | Supabase, SQL editor | `select vault.create_secret('https://api.github.com/repos/<owner>/<repo>/actions/workflows/intake.yml/dispatches', 'intake_dispatch_url');` and `select vault.create_secret('<token>', 'intake_dispatch_token');` |
 

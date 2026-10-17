@@ -27,9 +27,7 @@ def _profile(settings: config.Settings) -> Profile:
 
 
 def _router(settings: config.Settings, store: Store) -> Router | None:
-    if not settings.openrouter_key:
-        return None
-    return Router(settings.openrouter_key, store, settings.llm_daily_cap)
+    return Router.from_settings(settings, store)
 
 
 def _ping(settings: config.Settings, suffix: str, body: dict | None = None) -> None:
