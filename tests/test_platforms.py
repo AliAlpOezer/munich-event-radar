@@ -3,12 +3,22 @@
 import ast
 from pathlib import Path
 
+import pytest
 from selectolax.lexbor import LexborHTMLParser
 
 from event_radar.platforms import PLATFORMS, listing_feed, uid_key
 
 SRC = Path(__file__).resolve().parents[1] / "src"
 PLATFORM_DIR = SRC / "event_radar" / "platforms"
+FOREIGN = "https://example.org/events/2026/ai-night"
+DATA = '{"props":{"pageProps":{"initialData":{"data":%s}}}}'
+ODD = '{"event": {"name": "x", "geo_address_info": "Munich"}, "ticket_info": [], "hosts": [1]}'
+PAGES = {
+    "empty": "",
+    "broken JSON": '{"props": [',
+    "no event": DATA % '{"event": null, "calendar": "cal-1"}',
+    "odd shapes": DATA % ODD,
+}
 SUBMODULES = {f"event_radar.platforms.{p.stem}" for p in PLATFORM_DIR.glob("*.py")} - {
     "event_radar.platforms.__init__"
 }
@@ -74,3 +84,15 @@ def test_a_luma_calendar_page_names_its_feed():
     data = '{"props":{"pageProps":{"initialData":{"data":{"calendar":{"api_id":"cal-XyZ1"}}}}}}'
     page = LexborHTMLParser(f'<script id="__NEXT_DATA__">{data}</script>'.encode())
     assert listing_feed(page) == "https://api.lu.ma/ics/get?entity=calendar&id=cal-XyZ1"
+
+
+@pytest.mark.parametrize("platform", PLATFORMS, ids=lambda p: p.name)
+def test_an_adapter_answers_nothing_on_a_page_or_url_not_its_own(platform):
+    assert not platform.claims(FOREIGN)
+    assert platform.event_key(FOREIGN) is None
+    assert platform.uid_key("4711@example.org") is None
+    assert platform.organiser_source(FOREIGN) is None
+    for data in PAGES.values():
+        page = LexborHTMLParser(f'<script id="__NEXT_DATA__">{data}</script>'.encode())
+        assert platform.listing_feed(page) is None
+        assert platform.page_events(page) == []

@@ -35,6 +35,32 @@ def _closes_at(data: dict) -> str | None:
     return max(ends) if ends else None
 
 
+def _event(data: dict, event: dict) -> ParsedEvent:
+    ticket = data.get("ticket_info") or {}
+    geo = event.get("geo_address_info") or {}
+    url = f"https://luma.com/{event['url']}" if event.get("url") else None
+    values = {
+        "title": event.get("name"),
+        "starts_at": event.get("start_at"),
+        "ends_at": event.get("end_at"),
+        "venue": geo.get("address"),
+        "address": geo.get("full_address"),
+        "city": geo.get("city"),
+        "attendance": {"offline": "in_person", "online": "online"}.get(event.get("location_type")),
+        "organiser": ", ".join(h["name"] for h in data.get("hosts") or [] if h.get("name")) or None,
+        "event_url": url,
+        "image": image_url(event.get("cover_url"), "https://luma.com/"),
+        "reg_mode": "approval" if ticket.get("require_approval") else "open_signup",
+        "reg_url": url,
+        "reg_availability": _availability(data, ticket, event),
+        "reg_closes_at": _closes_at(data),
+        "spots_left": ticket.get("spots_remaining"),
+        "price": "free" if ticket.get("is_free") else "paid" if "is_free" in ticket else None,
+    }
+    keys = tuple(f"luma:{k}" for k in (event.get("api_id"), event.get("url")) if k)
+    return ParsedEvent({k: Evidence(v) for k, v in values.items() if v is not None}, keys)
+
+
 class Luma(Platform):
     name = "luma"
     hosts = ("luma.com", "lu.ma")
@@ -88,34 +114,13 @@ class Luma(Platform):
         return f"https://api.lu.ma/ics/get?entity=calendar&id={calendar_id}"
 
     def page_events(self, tree: LexborHTMLParser) -> list[ParsedEvent]:
+        """An event page's event; none when its data has another shape than expected,
+        so the page goes to the LLM instead of stopping the harvest."""
         data = _next_data(tree)
-        try:
-            event = data["event"]
-        except (KeyError, TypeError):
+        event = data.get("event") if isinstance(data, dict) else None
+        if not isinstance(event, dict):
             return []
-        ticket = data.get("ticket_info") or {}
-        geo = event.get("geo_address_info") or {}
-        url = f"https://luma.com/{event['url']}" if event.get("url") else None
-        values = {
-            "title": event.get("name"),
-            "starts_at": event.get("start_at"),
-            "ends_at": event.get("end_at"),
-            "venue": geo.get("address"),
-            "address": geo.get("full_address"),
-            "city": geo.get("city"),
-            "attendance": {"offline": "in_person", "online": "online"}.get(
-                event.get("location_type")
-            ),
-            "organiser": ", ".join(h["name"] for h in data.get("hosts") or [] if h.get("name"))
-            or None,
-            "event_url": url,
-            "image": image_url(event.get("cover_url"), "https://luma.com/"),
-            "reg_mode": "approval" if ticket.get("require_approval") else "open_signup",
-            "reg_url": url,
-            "reg_availability": _availability(data, ticket, event),
-            "reg_closes_at": _closes_at(data),
-            "spots_left": ticket.get("spots_remaining"),
-            "price": "free" if ticket.get("is_free") else "paid" if "is_free" in ticket else None,
-        }
-        keys = tuple(f"luma:{k}" for k in (event.get("api_id"), event.get("url")) if k)
-        return [ParsedEvent({k: Evidence(v) for k, v in values.items() if v is not None}, keys)]
+        try:
+            return [_event(data, event)]
+        except (AttributeError, TypeError):
+            return []
