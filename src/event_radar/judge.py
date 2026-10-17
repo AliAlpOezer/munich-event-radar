@@ -1,7 +1,7 @@
 import re
 from datetime import datetime
 
-from .model import OFF_TOPIC, Verdict, field_value
+from .model import AUDIENCE, OFF_TOPIC, Verdict, field_value
 from .profile import Profile
 from .resolve import local_date
 
@@ -51,6 +51,18 @@ class Judge:
                     return kind
         return None
 
+    def audience(self, fields: dict) -> tuple[str | None, str | None]:
+        """The audience other than adults an event is aimed at (ADR 0012), as the LLM
+        states it or a title phrase names it, and the phrase."""
+        stated = field_value(fields, "audience")
+        if stated in self.profile.audiences:
+            return str(stated), None
+        title = str(field_value(fields, "title") or "").lower().replace("’", "'")
+        for audience, phrases in self.profile.audiences.items():
+            if phrase := next((p for p in phrases if p in title), None):
+                return audience, f"title '{phrase}'"
+        return None, None
+
     def ai_relevance(self, fields: dict) -> str:
         if stated := field_value(fields, "ai_relevance"):
             return str(stated)
@@ -69,6 +81,9 @@ class Judge:
         return any(w in self._text(fields) for w in self.profile.scope_keywords)
 
     def judge(self, fields: dict, now: datetime, *, ai_focus: bool, startup_focus: bool) -> Verdict:
+        audience, phrase = self.audience(fields)
+        if audience:
+            return Verdict(None, tuple(filter(None, (f"audience={audience}", phrase))), AUDIENCE)
         today = now.date().isoformat()
         last_day = local_date(field_value(fields, "ends_at") or field_value(fields, "starts_at"))
         if last_day and last_day < today:

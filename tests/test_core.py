@@ -301,6 +301,31 @@ def test_events_outside_ai_startups_and_careers_are_off_topic():
     assert verdict(ai_focus=False, title="Founders and investors night").tier == "C"
 
 
+def test_events_for_children_pupils_or_families_leave_the_board_whatever_their_topic():
+    kids = verdict(title="Children's University: How Is AI Changing the World of Images?")
+    assert kids.tier is None and kids.drop_reason == "audience"
+    assert kids.reasons == ("audience=children", "title 'children's university'")
+    museums = "Children’s Program at the Long Night of Museums"
+    assert verdict(title=museums, kind="programme", ai_relevance="core").drop_reason == "audience"
+    pupils = verdict(title="KI-Workshop für Schülerinnen", starts_at="2026-10-01")
+    assert pupils.drop_reason == "audience" and pupils.reasons[0] == "audience=school_pupils"
+    family = verdict(title="appliedAI Developers Meetup - Family Edition", city="Heilbronn")
+    assert family.drop_reason == "audience" and family.reasons[0] == "audience=families"
+    stated = verdict(
+        title="Robotics course", ai_relevance="core", price="paid", audience="children"
+    )
+    assert stated.drop_reason == "audience" and stated.reasons == ("audience=children",)
+    open_house = verdict(
+        title="Open House in Garching",
+        audience="adults",
+        prerequisites="Open to all; students, staff, external guests, families",
+    )
+    assert open_house.tier == "B"
+    assert verdict(title="AI in Children's Medicine Symposium").tier == "A"
+    assert verdict(ai_focus=False, title="Familienunternehmen und KI").tier == "B"
+    assert verdict(ai_focus=False, startup_focus=True, title="Family Office Summit").tier == "C"
+
+
 def test_the_extraction_states_an_audience_from_its_own_values():
     page = "Kinder-Uni am Campus. For children aged 8 to 12."
     stated = {"value": "children", "quote": "For children aged 8 to 12"}

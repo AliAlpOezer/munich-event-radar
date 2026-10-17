@@ -27,6 +27,7 @@ class Profile:
     ai_keywords: tuple[str, ...]
     kind_keywords: dict[str, tuple[str, ...]]
     scope_keywords: tuple[str, ...]
+    audiences: dict[str, tuple[str, ...]]
     online: Online
     link_signals: tuple[str, ...]
     about_signals: tuple[str, ...]
@@ -43,6 +44,7 @@ class Profile:
             ai_keywords=tuple(raw["keywords"]["ai"]),
             kind_keywords={k: tuple(v) for k, v in raw["keywords"]["kinds"].items()},
             scope_keywords=tuple(w for words in raw["scope"].values() for w in words),
+            audiences={k: tuple(v) for k, v in raw["audience"].items()},
             online=Online(**{k: tuple(v) for k, v in raw["online"].items()}),
             link_signals=tuple(raw["intake"]["link_signals"]),
             about_signals=tuple(raw["intake"]["about_signals"]),

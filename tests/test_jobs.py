@@ -357,3 +357,21 @@ def test_a_startup_organisers_events_stay_and_off_topic_ones_are_not_stored(stor
         ("Talk on 5 November", "C")
     ]
     assert harvester.counts["tier_off_topic"] == 1
+
+
+def test_a_childrens_event_is_not_asked_about_and_not_stored(store, profile):
+    pages = {
+        "/events/agents": lambda: _event("Talk on AI agents", "2030-11-05T18:00:00+01:00"),
+        "/events/kids": lambda: _event(
+            "Children's University: How Do AI Agents Learn?", "2030-11-27T17:00:00+01:00"
+        ),
+    }
+    harvester, answers = _site(store, profile, pages)
+    harvester.harvest_due()
+    harvester.extract()
+    harvester.judge_events()
+    [batch] = answers.sorted
+    assert len(batch) == 1 and "Talk on AI agents" in batch[0] and len(answers.asked) == 1
+    assert _states(store)["/events/kids"] == "skipped"
+    assert [e["fields"]["title"]["value"] for e in store.events.all()] == ["Talk on AI agents"]
+    assert harvester.counts["tier_audience"] == 1

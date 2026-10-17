@@ -378,7 +378,8 @@ def test_a_merge_keeps_each_users_status_and_stars(store, users):
     assert len(_stars(store)) == 2
 
 
-def test_an_event_that_turns_off_topic_is_deleted_with_what_hangs_on_it(store, users):
+@pytest.mark.parametrize("reason", ["off_topic", "audience"])
+def test_an_event_that_leaves_the_board_is_deleted_with_what_hangs_on_it(store, users, reason):
     store.events.save(
         [JudgedEvent({"url:a"}, {"title": {"value": "Dance"}}, "url", _verdict("C"), [])]
     )
@@ -393,7 +394,7 @@ def test_an_event_that_turns_off_topic_is_deleted_with_what_hangs_on_it(store, u
             " VALUES (%s, 'new', 'h', 'sent', now())",
             (event["key"],),
         )
-    off = Verdict(None, ("ai=unknown",), "off_topic")
+    off = Verdict(None, ("ai=unknown",), reason)
     counts = store.events.save(
         [JudgedEvent({"url:a", "url:b"}, {"title": {"value": "Dance"}}, "url", off, [])]
         + [JudgedEvent({"url:c"}, {"title": {"value": "Concert"}}, "url", off, [])]
