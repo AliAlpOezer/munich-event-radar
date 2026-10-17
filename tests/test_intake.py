@@ -10,6 +10,7 @@ from event_radar.fetch import Fetched
 from event_radar.intake import discovery, urls
 from event_radar.intake.service import IntakeService
 from event_radar.model import IntakeState
+from event_radar.platforms import organiser_source
 
 FIXTURES = Path(__file__).parent / "fixtures"
 SIGNALS = ("events", "event", "upcoming", "veranstaltungen", "termine", "calendar")
@@ -55,11 +56,11 @@ def test_an_events_page_that_renders_with_javascript_is_a_shell():
 
 def test_platform_pages_become_trackable_sources():
     assert (
-        urls.platform_source("https://www.meetup.com/aws-munich/")
+        organiser_source("https://www.meetup.com/aws-munich/")
         == "https://www.meetup.com/aws-munich/events/ical/"
     )
-    assert urls.platform_source("https://www.meetup.com/aws-munich/events/123/") is None
-    assert urls.platform_source("https://pretix.eu/MDSI.TUM/") == "https://pretix.eu/MDSI.TUM/"
+    assert organiser_source("https://www.meetup.com/aws-munich/events/123/") is None
+    assert organiser_source("https://pretix.eu/MDSI.TUM/") == "https://pretix.eu/MDSI.TUM/"
 
 
 def _site(start: str) -> dict[str, str]:

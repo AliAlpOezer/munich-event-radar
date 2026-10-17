@@ -6,8 +6,8 @@ from selectolax.lexbor import LexborHTMLParser
 
 from .. import html
 from ..model import Evidence, Kind, ParsedEvent, ParseResult
-from ..platforms import is_ticket_host, platform_key
-from . import ics, jsonld, luma
+from ..platforms import is_ticket_host, listing_feed, page_events, platform_key
+from . import ics, jsonld
 
 _RSS_LINK = re.compile(r"<item\b.*?<link>\s*(?:<!\[CDATA\[)?\s*(\S+?)\s*(?:\]\]>)?\s*</link>", re.S)
 _DETAIL_PATH = re.compile(r"/(events?|veranstaltung(en)?|termine?|details?)/", re.I)
@@ -67,7 +67,7 @@ def parse(url: str, content_type: str | None, body: bytes, kind: Kind) -> ParseR
             "rss@1", follow=tuple(dict.fromkeys(_RSS_LINK.findall(body.decode(errors="replace"))))
         )
     tree = LexborHTMLParser(body)
-    found, method = luma.events(tree), "luma@2"
+    method, found = page_events(tree)
     structured = jsonld.events(tree, url)
     if not found:
         found, method = structured, "jsonld@2"
@@ -76,7 +76,7 @@ def parse(url: str, content_type: str | None, body: bytes, kind: Kind) -> ParseR
     page_links = html.links(tree, url)
     ticket_links = [link for link in page_links if platform_key(link)]
     if kind is not Kind.EVENT_PAGE:
-        feed = luma.calendar_feed(tree)
+        feed = listing_feed(tree)
         follow = [feed] if feed else _detail_links(url, page_links)
         return ParseResult(method, tuple(found), follow=tuple(follow))
     if len(found) != 1:
