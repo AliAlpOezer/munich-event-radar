@@ -10,6 +10,7 @@ from event_radar.fetch import Fetched
 from event_radar.intake import discovery, urls
 from event_radar.intake.service import IntakeService
 from event_radar.model import IntakeState
+from event_radar.platforms import organiser_source
 
 FIXTURES = Path(__file__).parent / "fixtures"
 SIGNALS = ("events", "event", "upcoming", "veranstaltungen", "termine", "calendar")
@@ -24,6 +25,8 @@ SIGNALS = ("events", "event", "upcoming", "veranstaltungen", "termine", "calenda
         ("https://lu.ma/munichnlp", "luma.com/munichnlp"),
         ("https://lu.ma/user/usr-155pp5bEZxqeQBp", "luma.com/user/usr-155pp5bEZxqeQBp"),
         ("https://www.meetup.com/aws-munich/", "meetup.com/aws-munich"),
+        ("https://www.eventbrite.de/o/example-org-123456", "eventbrite.de/o/example-org-123456"),
+        ("https://www.eventbrite.de/o/other-org-654321", "eventbrite.de/o/other-org-654321"),
     ],
 )
 def test_organiser_domain_matches_the_seed_convention(url, domain):
@@ -55,11 +58,11 @@ def test_an_events_page_that_renders_with_javascript_is_a_shell():
 
 def test_platform_pages_become_trackable_sources():
     assert (
-        urls.platform_source("https://www.meetup.com/aws-munich/")
+        organiser_source("https://www.meetup.com/aws-munich/")
         == "https://www.meetup.com/aws-munich/events/ical/"
     )
-    assert urls.platform_source("https://www.meetup.com/aws-munich/events/123/") is None
-    assert urls.platform_source("https://pretix.eu/MDSI.TUM/") == "https://pretix.eu/MDSI.TUM/"
+    assert organiser_source("https://www.meetup.com/aws-munich/events/123/") is None
+    assert organiser_source("https://pretix.eu/MDSI.TUM/") == "https://pretix.eu/MDSI.TUM/"
 
 
 def _site(start: str) -> dict[str, str]:

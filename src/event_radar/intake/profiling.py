@@ -3,8 +3,8 @@
 from datetime import date
 from urllib.parse import urlsplit
 
+from .. import html
 from ..extract.router import Router
-from ..parse import html
 from .discovery import matches
 
 KINDS = ["academic", "community", "industry", "startup", "student", "other"]

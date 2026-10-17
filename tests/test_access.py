@@ -66,6 +66,8 @@ def board(store):
     org = store.organisers.add("Munich NLP", "luma.com/munichnlp", "seed", ai_focus=True)
     store.sources.add("https://luma.com/munichnlp", "listing", "TICKET", 24, "seed", org)
     images = ["https://a.org/own.png"] + ["https://b.org/site.png"] * 3
+    # As in a harvest, the run starts before it saves the events.
+    run = store.runs.start()
     store.events.save(
         [
             JudgedEvent(
@@ -78,7 +80,6 @@ def board(store):
             for i, image in enumerate(images)
         ]
     )
-    run = store.runs.start()
     store.runs.finish(run, "ok", {"tier_B": 4})
     return {e["fields"]["title"]["value"]: e["key"] for e in store.events.all()}
 

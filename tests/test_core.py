@@ -9,10 +9,10 @@ import pytest
 from conftest import TEST_DSN
 from event_radar.extract.router import BudgetExhausted, DailyCapReached, Model, Router
 from event_radar.extract.verify import verify
+from event_radar.html import image_url
 from event_radar.judge import Judge
 from event_radar.model import Evidence, Kind, Observation, SourceClass
 from event_radar.parse import parse
-from event_radar.parse.html import image_url
 from event_radar.platforms import platform_key
 from event_radar.profile import Profile
 from event_radar.resolve import local_minute, resolve
@@ -67,6 +67,22 @@ def test_luma_page_carries_registration_state():
     assert fields["reg_closes_at"] == "2026-11-04T22:59:00.000Z"
     assert "luma:evt-example1" in result.events[0].platform_keys
     assert not result.needs_llm
+
+
+def test_a_luma_event_page_follows_events_but_not_its_category_pages():
+    result = parse(LUMA, "text/html", page("luma-event.html"), Kind.EVENT_PAGE)
+    assert result.follow == ("https://luma.com/example-ai-night-2",)
+
+
+@pytest.mark.parametrize("kind", list(Kind))
+def test_a_luma_category_page_yields_nothing_and_asks_no_llm(kind):
+    data = (
+        '{"props": {"pageProps": {"initialData": {"kind": "category", "data": {"category":'
+        ' {"slug": "climate"}, "num_upcoming_events": 40}}}}}'
+    )
+    body = f'<script id="__NEXT_DATA__">{data}</script><a href="/example-ai-night">x</a>'
+    result = parse("https://luma.com/climate", "text/html", body.encode(), kind)
+    assert (result.events, result.follow, result.needs_llm) == ((), (), False)
 
 
 def test_cms_page_without_registration_goes_to_llm():
@@ -155,6 +171,13 @@ def test_aggregator_only_is_unchecked_and_conflicting_keys_never_merge():
     groups = resolve([a, b])
     assert len(groups) == 2
     assert all(g.fields["reg_availability"]["value"] == "unchecked" for g in groups)
+
+
+def test_a_platform_search_page_is_an_aggregator(profile):
+    search = "https://www.eventbrite.com/d/germany--munich/ai/"
+    assert profile.source_class(search) is SourceClass.AGG
+    event = "https://www.eventbrite.com/e/ai-night-tickets-123456789"
+    assert profile.source_class(event) is SourceClass.TICKET
 
 
 def test_fuzzy_merge_on_same_date_and_title():

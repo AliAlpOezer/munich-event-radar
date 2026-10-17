@@ -2,17 +2,17 @@
 
 import re
 from dataclasses import dataclass
-from urllib.parse import urljoin, urlsplit
+from urllib.parse import urlsplit
 
 from selectolax.lexbor import LexborHTMLParser
 
+from .. import html
 from ..fetch import Fetcher
 from ..model import Kind
-from ..parse import html, luma, parse
-from ..platforms import canonical, platform_key
+from ..parse import parse
+from ..platforms import canonical, listing_feed, organiser_source, platform_key
 from ..render import Renderer
 from ..store import Store
-from .urls import platform_source
 
 SHELL_TEXT = 300
 SHELL_LINKS = 5
@@ -43,10 +43,11 @@ def declared_feeds(tree: LexborHTMLParser, base: str) -> list[str]:
     feeds = []
     for link in tree.css("link[rel~='alternate'][href]"):
         kind = (link.attributes.get("type") or "").lower()
-        if any(t in kind for t in _FEED_TYPES):
-            feeds.append(urljoin(base, link.attributes["href"]))
+        url = html.absolute(base, link.attributes["href"])
+        if url and any(t in kind for t in _FEED_TYPES):
+            feeds.append(url)
     feeds += [url for url in html.links(tree, base) if urlsplit(url).path.endswith(".ics")]
-    if feed := luma.calendar_feed(tree):
+    if feed := listing_feed(tree):
         feeds.append(feed)
     return feeds
 
@@ -56,7 +57,7 @@ def scan_links(tree: LexborHTMLParser, base: str, signals: tuple[str, ...]) -> l
     home = urlsplit(base).hostname
     found = []
     for url, label in html.anchors(tree, base):
-        if platform := platform_source(url):
+        if platform := organiser_source(url):
             found.append(platform)
             continue
         parts = urlsplit(url)

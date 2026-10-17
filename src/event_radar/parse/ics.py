@@ -4,12 +4,8 @@ from datetime import date, datetime
 from icalendar import Calendar
 
 from ..model import Evidence, ParsedEvent
-from ..platforms import platform_key
+from ..platforms import platform_key, uid_key
 
-_UID_KEYS = (
-    (re.compile(r"^(evt-[A-Za-z0-9]+)@events\.lu\.ma$"), "luma"),
-    (re.compile(r"^event_(\d+)@meetup\.com$"), "meetup"),
-)
 _URL = re.compile(r"https?://[^\s<>\"']+")
 
 
@@ -20,11 +16,7 @@ def _iso(value: object) -> str | None:
 
 
 def _uid_key(uid: str) -> str | None:
-    for pattern, platform in _UID_KEYS:
-        match = pattern.match(uid)
-        if match:
-            return f"{platform}:{match.group(1)}"
-    return f"ical:{uid}" if uid and "@" in uid else None
+    return uid_key(uid) or (f"ical:{uid}" if uid and "@" in uid else None)
 
 
 def events(body: bytes) -> list[ParsedEvent]:

@@ -9,6 +9,7 @@ import httpx
 import pytest
 
 from event_radar.fetch import Fetcher
+from event_radar.harvester import Harvester
 from event_radar.intake.service import IntakeService
 
 DISPATCH_URL = "https://api.github.com/repos/owner/repo/actions/workflows/intake.yml/dispatches"
@@ -153,3 +154,27 @@ def test_a_fetch_whose_body_is_gone_asks_for_the_whole_page(store):
     assert fetcher.get(url).ok
     assert "if-none-match" not in sent[2]
     assert store.pages.body(store.pages.latest(url)["content_hash"]) == b"<html>page</html>"
+
+
+def test_a_malformed_link_on_a_page_does_not_stop_the_harvest(store, profile):
+    pages = {
+        "/a": b'<a href="http://[broken/x">x</a> <a href="/events/1">One</a>',
+        "/b": b'<a href="/events/2">Two</a>',
+    }
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        body = pages.get(request.url.path)
+        if body is None:
+            return httpx.Response(404)
+        return httpx.Response(200, content=body, headers={"content-type": "text/html"})
+
+    client = httpx.Client(transport=httpx.MockTransport(handler))
+    for path in pages:
+        store.sources.add(f"https://example.org{path}", "listing", "OWN", 24, "test")
+    harvester = Harvester(
+        store, profile, Fetcher(store, "test-agent", min_interval_s=0, client=client)
+    )
+    harvester.harvest_due()
+    assert harvester.counts["fetched"] == 2
+    followed = {s["url"] for s in store.sources.all()}
+    assert {"https://example.org/events/1", "https://example.org/events/2"} <= followed
