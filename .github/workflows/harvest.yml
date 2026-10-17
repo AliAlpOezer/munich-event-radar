@@ -24,3 +24,4 @@ jobs:
         env:
           RADAR_DATABASE_URL: ${{ secrets.RADAR_DATABASE_URL }}
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}

@@ -4,7 +4,7 @@ from pathlib import Path
 
 from . import config, golden, jobs, sqlite_import
 from .extract import Extractor
-from .extract.router import Router
+from .extract.router import Router, providers
 from .fetch import Fetcher
 from .model import field_value
 from .resolve import local_minute
@@ -56,9 +56,9 @@ def freeze(settings: config.Settings, args: argparse.Namespace) -> None:
 
 def replay(settings: config.Settings, args: argparse.Namespace) -> None:
     extractor = None
-    if settings.openrouter_key:
+    if found := providers(settings):
         cache = Store(settings.database_url)
-        extractor = Extractor(Router(settings.openrouter_key, cache, settings.llm_daily_cap), cache)
+        extractor = Extractor(Router(found, cache), cache)
     report = golden.replay(
         settings.repo_dir, settings.fixtures_dir, settings.database_url, extractor
     )

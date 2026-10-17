@@ -1,5 +1,6 @@
 import json
 import sqlite3
+from dataclasses import replace
 from datetime import datetime
 from pathlib import Path
 
@@ -7,7 +8,7 @@ import httpx
 import pytest
 
 from conftest import TEST_DSN
-from event_radar.extract.router import BudgetExhausted, DailyCapReached, Model, Router
+from event_radar.extract.router import BudgetExhausted, DailyCapReached, Model, Provider, Router
 from event_radar.extract.verify import verify
 from event_radar.html import image_url
 from event_radar.judge import Judge
@@ -296,11 +297,32 @@ def test_application_is_a_registration_mode_not_a_programme():
     assert JUDGE.kind({"title": {"value": "AI Fellowship 2027"}}) == "programme"
 
 
-def _router(store, handler, cap=5):
-    client = httpx.Client(transport=httpx.MockTransport(handler))
-    router = Router("k", store, cap, client)
-    router._live = {m.id for m in (Model("nvidia/nemotron-3-super-120b-a12b:free", "schema"),)}
-    return router
+OPENROUTER = Provider(
+    "openrouter",
+    "https://openrouter.example",
+    "k",
+    5,
+    (
+        Model("nvidia/nemotron-3-super-120b-a12b:free", "schema"),
+        Model("openrouter/free", "json_object"),
+    ),
+)
+GROQ = Provider("groq", "https://groq.example", "g", 5, (Model("openai/gpt-oss-120b", "schema"),))
+LIVE = {"data": [{"id": "nvidia/nemotron-3-super-120b-a12b:free"}, {"id": "openai/gpt-oss-120b"}]}
+
+
+def _router(store, handler, *providers, sent=None):
+    """A router over `providers` (OpenRouter alone by default); `sent` collects the hosts
+    of the completion requests."""
+
+    def route(request: httpx.Request) -> httpx.Response:
+        if request.url.path.endswith("/models"):
+            return httpx.Response(200, json=LIVE)
+        if sent is not None:
+            sent.append(request.url.host)
+        return handler(request)
+
+    return Router(list(providers) or [OPENROUTER], store, httpx.MockTransport(route))
 
 
 def _ok(content):
@@ -316,9 +338,45 @@ def test_router_skips_upstream_429_and_stops_on_account_cap(store):
 
 
 def test_budget_is_a_ceiling(store):
-    router = _router(store, lambda r: httpx.Response(503, text='{"error": "overloaded"}'), cap=1)
+    spent = replace(OPENROUTER, daily_cap=1)
+    router = _router(store, lambda r: httpx.Response(503, text='{"error": "overloaded"}'), spent)
     with pytest.raises(BudgetExhausted):
         router.complete([], {})
+
+
+def test_groq_answers_when_openrouter_reaches_its_daily_limit(store):
+    def handler(request):
+        if request.url.host == "openrouter.example":
+            return httpx.Response(429, text="free-models-per-day")
+        return _ok({"events": []})
+
+    sent: list[str] = []
+    router = _router(store, handler, OPENROUTER, GROQ, sent=sent)
+    assert router.complete([], {})[0] == "openai/gpt-oss-120b"
+    assert router.complete([], {})[0] == "openai/gpt-oss-120b"
+    assert sent == ["openrouter.example", "groq.example", "groq.example"]
+    with store.tx() as db:
+        used = {r["provider"]: r["used"] for r in db.execute("SELECT provider, used FROM budget")}
+    assert used == {"openrouter": 1, "groq": 2}
+
+
+def test_groq_answers_when_openrouter_times_out(store):
+    def handler(request):
+        if request.url.host == "openrouter.example":
+            raise httpx.ReadTimeout("slow", request=request)
+        return _ok({"events": []})
+
+    sent: list[str] = []
+    router = _router(store, handler, OPENROUTER, GROQ, sent=sent)
+    router.complete([], {})
+    router.complete([], {})
+    assert sent == ["openrouter.example", "groq.example", "groq.example"]
+
+
+def test_every_provider_spent_defers_the_work(store):
+    capped = (replace(OPENROUTER, daily_cap=0), replace(GROQ, daily_cap=0))
+    with pytest.raises(BudgetExhausted):
+        _router(store, lambda r: _ok({}), *capped).complete([], {})
 
 
 def test_board_times_are_munich_local():
