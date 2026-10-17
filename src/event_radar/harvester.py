@@ -10,7 +10,7 @@ from .extract import Extractor, triage
 from .extract.router import AllModelsFailed, BudgetExhausted, DailyCapReached
 from .fetch import Fetcher
 from .judge import Judge
-from .model import JobState, JudgedEvent, Kind, SourceClass
+from .model import OFF_TOPIC, JobState, JudgedEvent, Kind, SourceClass
 from .pipeline import ingest
 from .profile import Profile
 from .render import Renderer
@@ -135,21 +135,29 @@ class Harvester:
 
     def _worth_extracting(self, jobs: list[dict]) -> list[dict]:
         """The jobs worth an extraction call (ADR 0010): the judge skips the events it
-        drops, an AI-focused organiser's pages need no question, and the LLM sorts the
-        rest in batches. The others become `skipped`."""
+        drops for a fact, an AI-focused or startup organiser's pages need no question, and
+        the LLM sorts the rest in batches, off topic or not (ADR 0011). The others become
+        `skipped`."""
         now = datetime.now(UTC)
         focused = self.store.sources.focused_urls()
+        startups = self.store.sources.startup_urls()
         asked: dict[tuple[str, str], str] = {}
         candidates: dict[str, dict] = {}
         kept: set[tuple[str, str]] = set()
         for job in jobs:
             ident = (job["snapshot_hash"], job["url"])
             candidate, fields = triage.candidate(job["url"], self.store.pages.body(ident[0]))
-            ai_focus = job["url"] in focused
-            if fields and self.judge.judge(fields, now, ai_focus=ai_focus).drop_reason:
+            ai_focus, startup_focus = job["url"] in focused, job["url"] in startups
+            drop = (
+                fields
+                and self.judge.judge(
+                    fields, now, ai_focus=ai_focus, startup_focus=startup_focus
+                ).drop_reason
+            )
+            if drop and drop != OFF_TOPIC:
                 self.store.extraction.skip(*ident)
                 self.counts["llm_skipped"] += 1
-            elif ai_focus:
+            elif ai_focus or startup_focus:
                 kept.add(ident)
             else:
                 asked[ident] = triage.key(candidate)
@@ -170,15 +178,22 @@ class Harvester:
         with self.store.lock("judge"):
             now = datetime.now(UTC)
             focused = self.store.sources.focused_urls()
+            startups = self.store.sources.startup_urls()
             judged = []
             for group in resolve(self.store.observations.all()):
-                ai_focus = any(o.url in focused for o in group.observations)
-                verdict = self.judge.judge(group.fields, now, ai_focus=ai_focus)
-                urls = sorted({o.url for o in group.observations})
+                urls = {o.url for o in group.observations}
+                verdict = self.judge.judge(
+                    group.fields,
+                    now,
+                    ai_focus=bool(urls & focused),
+                    startup_focus=bool(urls & startups),
+                )
                 judged.append(
-                    JudgedEvent(group.aliases, group.fields, group.merge_basis, verdict, urls)
+                    JudgedEvent(
+                        group.aliases, group.fields, group.merge_basis, verdict, sorted(urls)
+                    )
                 )
                 self.counts[f"tier_{verdict.tier or verdict.drop_reason}"] += 1
                 if verdict.tier in {"A", "B"}:
-                    self.store.sources.set_cadence([o.url for o in group.observations], HOT_HOURS)
+                    self.store.sources.set_cadence(sorted(urls), HOT_HOURS)
             self.counts.update(self.store.events.save(judged))

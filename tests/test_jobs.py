@@ -317,6 +317,7 @@ def test_only_upcoming_events_about_ai_go_to_extraction(store, profile):
     harvester, answers = _site(store, profile, pages, unrelated=("Museums",))
     harvester.harvest_due()
     harvester.extract()
+    # The judge finds the museum night off topic by its title alone; the LLM still decides.
     [batch] = answers.sorted
     assert len(batch) == 2 and not any("2020" in line for line in batch)
     assert len(answers.asked) == 1 and "Talk on AI agents" in answers.asked[0]
@@ -336,3 +337,23 @@ def test_identical_events_on_two_pages_are_sorted_once(store, profile):
     harvester.extract()
     assert [len(batch) for batch in answers.sorted] == [1]
     assert answers.asked == [] and set(_states(store).values()) == {"skipped"}
+
+
+def test_a_startup_organisers_events_stay_and_off_topic_ones_are_not_stored(store, profile):
+    pages = {
+        "/events/talk": lambda: _page("Talk on 5 November", "a"),
+        "/events/museums": lambda: _event("Long Night of the Museums", "2030-10-17T18:00:00+02:00"),
+    }
+    harvester, answers = _site(store, profile, pages, unrelated=("Museums",))
+    org = store.organisers.add("UnternehmerTUM", "example.org", "test", kind="startup")
+    with store.tx() as db:
+        db.execute("UPDATE source SET organiser_id = %s WHERE url LIKE '%%/talk'", (org,))
+    harvester.harvest_due()
+    harvester.extract()
+    harvester.judge_events()
+    [batch] = answers.sorted
+    assert len(batch) == 1 and "Museums" in batch[0] and len(answers.asked) == 1
+    assert [(e["fields"]["title"]["value"], e["tier"]) for e in store.events.all()] == [
+        ("Talk on 5 November", "C")
+    ]
+    assert harvester.counts["tier_off_topic"] == 1

@@ -71,3 +71,15 @@ but not about AI.
 - pytest, node tests, ruff; replay without the LLM: A recall unchanged.
 - Before merging: a read-only dry run over the hosted observations lists every event that
   the next harvest deletes and the users' marks on them.
+
+## How it landed (2026-10-17)
+
+| Check | Result |
+|---|---|
+| New tests, before the code | 4 failed (no `startup_focus`, no `deleted` count, the startup page was sorted) |
+| pytest, node tests, ruff | 103 passed, 14 passed, clean |
+| Replay without the LLM, against `main` | A recall 0.636 on both; the one change is `cloud-native-october`, C to off topic, now its expectation in `eval/golden.yaml` |
+| Dry run over the hosted observations (read-only, `off_topic_dry_run.py` in the records repository) | 58 of 220 events deleted, all from C: 51 TUM central events, 7 BAdW. No status, star or push ledger row on any of them. No other tier changes. C keeps 6: Opportunity Hunters Talks, Industrial Edge Workshops for Startups, Engineers for Germany: Career Lounge, International Research Careers, Fit for TUMorrow Day, Afterwork Fermentieren (UnternehmerTUM, paid) |
+
+Seen, not changed: 3 stored online-only events come from no current observation group,
+so no run rewrites them; nothing deletes an event whose sources are gone.

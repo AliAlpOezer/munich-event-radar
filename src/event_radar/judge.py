@@ -1,7 +1,7 @@
 import re
 from datetime import datetime
 
-from .model import Verdict, field_value
+from .model import OFF_TOPIC, Verdict, field_value
 from .profile import Profile
 from .resolve import local_date
 
@@ -58,7 +58,17 @@ class Judge:
             "core" if any(w in self._text(fields) for w in self.profile.ai_keywords) else "unknown"
         )
 
-    def judge(self, fields: dict, now: datetime, *, ai_focus: bool) -> Verdict:
+    def in_scope(
+        self, fields: dict, kind: str | None, relevance: str, *, ai_focus: bool, startup_focus: bool
+    ) -> bool:
+        """About AI, or a startup or career event, or of a kind shown whatever its topic."""
+        if relevance in {"core", "some"} or (relevance == "unknown" and ai_focus):
+            return True
+        if startup_focus or kind in self.profile.any_topic_kinds:
+            return True
+        return any(w in self._text(fields) for w in self.profile.scope_keywords)
+
+    def judge(self, fields: dict, now: datetime, *, ai_focus: bool, startup_focus: bool) -> Verdict:
         today = now.date().isoformat()
         last_day = local_date(field_value(fields, "ends_at") or field_value(fields, "starts_at"))
         if last_day and last_day < today:
@@ -72,6 +82,10 @@ class Judge:
         kind = self.kind(fields)
         relevance = self.ai_relevance(fields)
         reasons = (f"price={price}", f"kind={kind}", f"ai={relevance}")
+        if not self.in_scope(
+            fields, kind, relevance, ai_focus=ai_focus, startup_focus=startup_focus
+        ):
+            return Verdict(None, reasons, OFF_TOPIC)
         if price == "paid":
             return Verdict("C", reasons + ("paid, no free route",))
         if relevance == "none":

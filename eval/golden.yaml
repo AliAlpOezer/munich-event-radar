@@ -152,8 +152,9 @@ events:
     pages: [https://conference.eaamo.org/]
     source: https://conference.eaamo.org/, checked 2026-10-07
 
+  # Off topic since ADR 0011 (2026-10-17): a cloud meetup about no AI, startup or career.
   - id: cloud-native-october
-    tier: C
+    tier: off_topic
     title: Kubernetes, Cloud Native and Platform Engineering Meetup, October
     starts: "2026-10-21T18:00:00+02:00"
     venue: adesso SE, Streitfeldstr. 25

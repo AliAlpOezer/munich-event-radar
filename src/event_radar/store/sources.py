@@ -51,12 +51,19 @@ class Sources(Repository):
 
     def focused_urls(self) -> set[str]:
         """The sources of organisers whose main topic is AI."""
+        return self._of_organisers("o.ai_focus")
+
+    def startup_urls(self) -> set[str]:
+        """The sources of startup organisers, whose every event is in scope (ADR 0011)."""
+        return self._of_organisers("o.kind = 'startup'")
+
+    def _of_organisers(self, where: str) -> set[str]:
         with self.database.tx() as db:
             return {
                 r["url"]
                 for r in db.execute(
                     "SELECT s.url FROM source s JOIN organiser o ON o.id = s.organiser_id"
-                    " WHERE o.ai_focus"
+                    f" WHERE {where}"
                 )
             }
 
