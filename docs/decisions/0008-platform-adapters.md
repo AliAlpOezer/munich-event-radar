@@ -1,7 +1,6 @@
 # ADR 0008: One adapter per platform
 
-**Status:** DECIDED (Alp's go 2026-10-15), built on branch `platform-adapters` (2026-10-17);
-the differential over the hosted pages is still to run (see "How it landed")
+**Status:** DECIDED (Alp's go 2026-10-15), built on branch `platform-adapters` (2026-10-17)
 **Date:** 2026-10-15
 **Inputs:** Alp, 2026-10-15: "start with b" (the adapter refactor before the calendar-feed
 fix). The feed-parsing findings of 2026-10-15: events known only from a Luma calendar feed
@@ -75,6 +74,7 @@ class Platform:
     def organiser_domain(self, url: str) -> str: ...  # the registry key
     def listing_feed(self, tree) -> str | None: ...  # a listing page's own feed
     def page_events(self, tree) -> list[ParsedEvent]: ...  # an event page's events
+    def is_topic_page(self, tree) -> bool: ...  # Luma's category pages
     def topic_keys(self, tree) -> set[str]: ...  # keys of links naming topic pages
 ```
 
@@ -99,7 +99,7 @@ class Platform:
 | 7 | The base class turns declarations (`event_url`, `not_events`, `feed_uid`, `organiser_path`) into answers, so Meetup, pretix and the form services are declarations plus at most one method | Each adapter matching its own URLs: the same match, id and not-an-event logic seven times |
 | 8 | The base class lives in `platforms/base.py`, and adapters import it from there | In `platforms/__init__.py`: an adapter would import the package that imports the adapters, and the import order would decide whether that works |
 | 9 | Eventbrite claims `eventbrite.com` and its country domains (`eventbrite.de`, `eventbrite.co.uk`) by pattern; the other platforms claim their hosts and subdomains | Listing Eventbrite's country domains: a list to keep current, of domains the radar has not checked |
-| 10 | Luma's category pages are recognised from the event page that links to them: its `__NEXT_DATA__` lists `categories` by slug, and their pages are `luma.com/<slug>` | A list of category slugs: it misses new categories. Recognising the category page itself: its page data is not yet seen (the golden pages hold only event pages) |
+| 10 | Luma's category pages are recognised twice, both from page data: an event page's `__NEXT_DATA__` lists its `categories` by slug, whose pages `luma.com/<slug>` are then not followed (`topic_keys`); and a page says `initialData.kind` `"category"` (beside `"event"` and `"calendar"`), and then yields nothing and asks no LLM (`is_topic_page`). The first keeps them from being added, the second covers those already tracked or arriving another way | A list of category slugs: it misses new categories. Only the second check: every event page's categories would still be added and fetched for nothing |
 
 ## Found while mapping
 
@@ -108,7 +108,7 @@ class Platform:
 | `is_ticket_host` matches substrings of the host, so every `docs.google.com` page (Docs, Sheets) counts as a ticket platform: TICKET class, no LLM | `platforms.py:67-69` | Fixed: a host or its subdomain; Google only under `/forms/` |
 | `eventbrite.com/d/` in the aggregators never applies, because the ticket check runs first: Eventbrite's search pages would be TICKET and their registration fields trusted | `profile.py:49-53`, `profile.yaml:13`, `resolve.py:186` | Fixed: the aggregator check runs first |
 | The intake's host checks disagree with the ticket list: `platform_source` matches hosts exactly, `is_ticket_host` by substring | `intake/urls.py:53,67-74` | Unified by the registry: an organiser source is asked only of the platform that claims the URL |
-| `luma.com/climate`, `/fitness` and `/running` are tracked as event pages. An event page that yields no event asks for the LLM, ticket host or not | local `radar_dev` sources, 2026-10-15; `parse/__init__.py:81-82`. Found 2026-10-17: they were added as links of the Luma event pages `luma.com/5lh8doqn` and `luma.com/zvc9xqlk`, and every golden Luma event page links to its categories (`/ai`, `/tech`), named in its `__NEXT_DATA__` | Fixed for new links: an event page no longer follows its categories' pages (D10). The sources added before stay until their rows are deleted (no source is retired automatically); checking the hosted sources and LLM jobs first, then deleting with Alp's go |
+| `luma.com/climate`, `/fitness` and `/running` are tracked as event pages. An event page that yields no event asks for the LLM, ticket host or not | local `radar_dev` sources, 2026-10-15; `parse/__init__.py:81-82`. Found 2026-10-17: they were added as links of the Luma event pages `luma.com/5lh8doqn` and `luma.com/zvc9xqlk`, and every golden Luma event page links to its categories (`/ai`, `/tech`), named in its `__NEXT_DATA__` | Fixed (D10): an event page no longer follows its categories' pages, and a category page yields nothing and asks no LLM. Hosted, 2026-10-17: the three sources are CDTM's, `last_yield` 0; each page had one done and one pending LLM job; the board shows "Climate Week Medellín" (tier C) with `luma.com/climate` as its only source. No source or event is retired automatically, so their rows are deleted once this is on `main`, with Alp's go |
 | Found 2026-10-17: `organiser_domain` keys every Eventbrite organiser page (`/o/<name-id>`) as `eventbrite.de/o`, so the intake refuses a second Eventbrite organiser as "Already in the registry" | `intake/urls.py` `organiser_domain`, `intake/service.py` `_check` | Fixed: `organiser_path` per platform (Luma `user`, Eventbrite `o`) |
 | Found 2026-10-17: a Luma page whose data holds `"event": null` or a field of another type raises in the parser; `jobs.harvest` catches only at the run level, so one such page ends the whole harvest | `parse/luma.py` `events` | Fixed: the page yields no event and goes to the LLM (invariant 6) |
 | Found 2026-10-17: a link such as `http://[broken` makes `urljoin` raise in `html.anchors`, `image_url` and `text`, so one such link on any page ends the whole harvest | `html.py` | Fixed: the link is skipped |
@@ -129,29 +129,35 @@ on irrelevant events.
 
 ## How it landed
 
-Built 2026-10-17. The differential ran over the golden pages (20), the test fixtures (4),
-every URL in the local `radar_dev` (288: sources, observations, their links, organiser
-domains), every link on those pages, and 57 edge cases (an ICS feed with Luma, Meetup and
-other UIDs, a Luma calendar page, broken page data, foreign, malformed and look-alike
-URLs): 7,206 answers over 1,172 URLs. Each commit was compared with the one before.
+Built 2026-10-17. Each commit was compared with the one before over two corpora:
 
-| Commit | Change | Differential |
-|---|---|---|
-| 334e5e3 | `parse/html.py` to `html.py` | none |
-| 0b2050d | the registry and the adapters | none, but for the malformed `https://[::1`: `is_ticket_host`, `source_class` and the organiser source raised `ValueError` and now answer False, OWN, None |
-| 1eec2f5 | invariant tests 2-4, each seen failing on a planted violation | tests only |
-| f1d1858 | Luma data of another shape yields nothing (invariant 6) | none |
-| 9a6daf1 | hosts and subdomains, Google only under `/forms/` | 6 URLs TICKET to OWN: a Google Docs link on a stored page and 5 edge cases (Docs, Sheets, `notluma.com`, `luma.com.evil.org`, `xmeetup.com`) |
-| bc26085 | aggregators before ticket hosts | 1 edge case, `eventbrite.com/d/...`, TICKET to AGG |
-| 5ed6ed2 | `organiser_path` | 3 edge cases: two Eventbrite `/o/` pages keep their own keys; `meetup.com/user/abc` keys as `meetup.com/user` |
-| 54d24a7 | category pages not followed | only the fixture, which now has a category link: its follow loses `luma.com/climate`. The golden Luma pages name `ai` and `tech`, too short to look like events |
-| 7c8df78 | malformed links skipped | none |
+- Local: the golden pages (20), the test fixtures (4), every URL in the local `radar_dev`
+  (288: sources, observations, their links, organiser domains) and every link on those
+  pages.
+- Hosted: the hosted database's latest body per URL (206 pages: 197 HTML, 8 ICS, 1 XML;
+  read-only export by Alp, kept outside both repositories and deleted after), its 214
+  sources, observation links and organiser domains, and every link on those pages.
+
+Both also ran 57 edge cases: an ICS feed with Luma, Meetup and other UIDs, Luma calendar
+and broken page data, foreign, malformed and look-alike URLs. That gives 7,206 answers
+over 1,172 URLs locally and 16,524 over about 2,550 URLs hosted.
+
+| Commit | Change | Local | Hosted |
+|---|---|---|---|
+| 334e5e3 | `parse/html.py` to `html.py` | none | none |
+| 0b2050d | the registry and the adapters | none, but for the malformed `https://[::1`: `is_ticket_host`, `source_class` and the organiser source raised `ValueError` and now answer False, OWN, None | the same |
+| 1eec2f5 | invariant tests 2-4, each seen failing on a planted violation | tests only | tests only |
+| f1d1858 | Luma data of another shape yields nothing (invariant 6) | none | none |
+| 9a6daf1 | hosts and subdomains, Google only under `/forms/` | 6 URLs TICKET to OWN: a Google Docs link on a stored page and 5 edge cases (Docs, Sheets, `notluma.com`, `luma.com.evil.org`, `xmeetup.com`) | the same 6 |
+| bc26085 | aggregators before ticket hosts | 1 edge case, `eventbrite.com/d/...`, TICKET to AGG | the same |
+| 5ed6ed2 | `organiser_path` | 3 edge cases: two Eventbrite `/o/` pages keep their own keys; `meetup.com/user/abc` keys as `meetup.com/user` | those, and two real organiser pages, `eventbrite.de/o/107519870241` and `/o/43580532123`, which both keyed as `eventbrite.de/o` |
+| 54d24a7 | category pages not followed | only the fixture, which now has a category link | 5 Luma event pages stop following `luma.com/climate` (4) or `/fitness` and `/running` (1); nothing else in their results changes |
+| 7c8df78 | malformed links skipped | none | none |
+| 4ac5381 | category pages yield nothing | none | `luma.com/climate`, `/fitness` and `/running` as event pages: `needs_llm` true to false |
 
 `event-radar replay` without the LLM gives a byte-identical report on 431a60d and the branch
 (a_recall 0.636, 7 of 11 A, as before). Not run: the replay with the LLM (no cached answers
-are left locally) and the differential over the hosted database's latest body per URL
-(Claude Code's auto mode refused the read-only export; Alp runs it). Tests: 88 pytest (62
-before), 14 node, ruff clean.
+are left locally). Tests: 91 pytest (62 before), 14 node, ruff clean.
 
 ## Open
 
