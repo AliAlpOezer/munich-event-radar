@@ -127,3 +127,4 @@ def test_an_adapter_answers_nothing_on_a_page_or_url_not_its_own(platform):
         assert platform.listing_feed(page) is None
         assert platform.page_events(page) == []
         assert platform.topic_keys(page) == set()
+        assert not platform.is_topic_page(page)

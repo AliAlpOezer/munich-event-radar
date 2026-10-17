@@ -18,6 +18,7 @@ __all__ = [
     "canonical",
     "host",
     "is_ticket_host",
+    "is_topic_page",
     "listing_feed",
     "organiser_domain",
     "organiser_source",
@@ -69,6 +70,10 @@ def uid_key(uid: str) -> str | None:
 
 def listing_feed(tree: LexborHTMLParser) -> str | None:
     return next((feed for p in PLATFORMS if (feed := p.listing_feed(tree))), None)
+
+
+def is_topic_page(tree: LexborHTMLParser) -> bool:
+    return any(p.is_topic_page(tree) for p in PLATFORMS)
 
 
 def topic_keys(tree: LexborHTMLParser) -> set[str]:

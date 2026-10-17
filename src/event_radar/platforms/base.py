@@ -78,7 +78,11 @@ class Platform:
         """The events on one of its pages, recognised by the page, not its URL."""
         return []
 
+    def is_topic_page(self, tree: LexborHTMLParser) -> bool:
+        """One of its topic pages, which list many organisers' events and are not tracked."""
+        return False
+
     def topic_keys(self, tree: LexborHTMLParser) -> set[str]:
         """The event keys that links on one of its pages would get but that name topic
-        pages, which list events and are none."""
+        pages."""
         return set()

@@ -74,6 +74,17 @@ def test_a_luma_event_page_follows_events_but_not_its_category_pages():
     assert result.follow == ("https://luma.com/example-ai-night-2",)
 
 
+@pytest.mark.parametrize("kind", list(Kind))
+def test_a_luma_category_page_yields_nothing_and_asks_no_llm(kind):
+    data = (
+        '{"props": {"pageProps": {"initialData": {"kind": "category", "data": {"category":'
+        ' {"slug": "climate"}, "num_upcoming_events": 40}}}}}'
+    )
+    body = f'<script id="__NEXT_DATA__">{data}</script><a href="/example-ai-night">x</a>'
+    result = parse("https://luma.com/climate", "text/html", body.encode(), kind)
+    assert (result.events, result.follow, result.needs_llm) == ((), (), False)
+
+
 def test_cms_page_without_registration_goes_to_llm():
     assert parse(CMS, "text/html", page("cms-event.html"), Kind.EVENT_PAGE).needs_llm
 

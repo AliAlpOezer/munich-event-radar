@@ -1,5 +1,6 @@
-"""Luma (luma.com, formerly lu.ma): a page carries its data in `__NEXT_DATA__`, an event
-page its registration state, a calendar page the calendar's ICS feed."""
+"""Luma (luma.com, formerly lu.ma): a page carries its data in `__NEXT_DATA__`, and says
+whether it is an event, a calendar or a category; an event page holds its registration
+state, a calendar page names the calendar's ICS feed."""
 
 import json
 import re
@@ -11,13 +12,20 @@ from ..model import Evidence, ParsedEvent
 from .base import Platform, host, segments
 
 
-def _next_data(tree: LexborHTMLParser) -> object:
+def _initial_data(tree: LexborHTMLParser) -> object:
     script = tree.css_first("script#__NEXT_DATA__")
     if script is None:
         return None
     try:
-        return json.loads(script.text())["props"]["pageProps"]["initialData"]["data"]
+        return json.loads(script.text())["props"]["pageProps"]["initialData"]
     except (ValueError, KeyError, TypeError):
+        return None
+
+
+def _next_data(tree: LexborHTMLParser) -> object:
+    try:
+        return _initial_data(tree)["data"]
+    except (KeyError, TypeError):
         return None
 
 
@@ -125,6 +133,10 @@ class Luma(Platform):
             return [_event(data, event)]
         except (AttributeError, TypeError):
             return []
+
+    def is_topic_page(self, tree: LexborHTMLParser) -> bool:
+        initial = _initial_data(tree)
+        return isinstance(initial, dict) and initial.get("kind") == "category"
 
     def topic_keys(self, tree: LexborHTMLParser) -> set[str]:
         """An event page names its categories, whose pages (`/climate`) look like events."""
