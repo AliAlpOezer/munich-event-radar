@@ -47,7 +47,8 @@ class Profile:
         )
 
     def source_class(self, url: str) -> SourceClass:
-        """TICKET for a ticket platform, AGG for an aggregator, else the organiser's OWN."""
-        if is_ticket_host(url):
-            return SourceClass.TICKET
-        return SourceClass.AGG if any(a in url for a in self.aggregators) else SourceClass.OWN
+        """AGG for an aggregator, even on a ticket platform (Eventbrite's search pages),
+        TICKET for a ticket platform, else the organiser's OWN."""
+        if any(a in url for a in self.aggregators):
+            return SourceClass.AGG
+        return SourceClass.TICKET if is_ticket_host(url) else SourceClass.OWN

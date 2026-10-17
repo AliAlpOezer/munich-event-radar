@@ -157,6 +157,13 @@ def test_aggregator_only_is_unchecked_and_conflicting_keys_never_merge():
     assert all(g.fields["reg_availability"]["value"] == "unchecked" for g in groups)
 
 
+def test_a_platform_search_page_is_an_aggregator(profile):
+    search = "https://www.eventbrite.com/d/germany--munich/ai/"
+    assert profile.source_class(search) is SourceClass.AGG
+    event = "https://www.eventbrite.com/e/ai-night-tickets-123456789"
+    assert profile.source_class(event) is SourceClass.TICKET
+
+
 def test_fuzzy_merge_on_same_date_and_title():
     own = obs(
         1,
