@@ -2,6 +2,7 @@
 workflow, a drain works the queue and exits, store locks serialise jobs, and page bodies
 live in the store until nothing can read them again."""
 
+import json
 import re
 import threading
 import time
@@ -187,14 +188,26 @@ TALK = "https://example.org/events/talk"
 
 
 class _Answers:
-    """An LLM stand-in that names the page's talk as its event and keeps what it was asked."""
+    """An LLM stand-in. It sorts events as related unless their line names one of
+    `unrelated`, names a page's talk as its event, and keeps what it was asked."""
 
-    def __init__(self):
+    def __init__(self, unrelated: tuple[str, ...] = ()):
+        self.unrelated = unrelated
         self.asked: list[str] = []
+        self.sorted: list[list[str]] = []
 
     def complete(self, messages, schema, name="events"):
-        self.asked.append(messages[-1]["content"])
-        title = re.search(r"Talk on \d+ November", messages[-1]["content"]).group(0)
+        question = messages[-1]["content"]
+        if name == "verdicts":
+            lines = question.splitlines()
+            self.sorted.append(lines)
+            verdicts = [
+                {"id": i, "relevant": not any(u in line for u in self.unrelated)}
+                for i, line in enumerate(lines)
+            ]
+            return "test-model", {"verdicts": verdicts}
+        self.asked.append(question)
+        title = re.search(r"Talk on [\w ]+", question).group(0).strip()
         return "test-model", {"events": [{"title": {"value": title, "quote": title}}]}
 
 
@@ -205,17 +218,46 @@ def _page(title: str, nonce: str) -> bytes:
 def _talk_site(store, profile, versions: list[bytes]) -> tuple[Harvester, _Answers]:
     """A harvester over one event page that serves the next of `versions` on each fetch."""
     bodies = iter(versions)
+    return _site(store, profile, {"/events/talk": lambda: next(bodies)})
+
+
+def _site(store, profile, pages: dict, unrelated: tuple[str, ...] = ()):
+    """A harvester over event pages: path to a function giving the body of each fetch."""
 
     def handler(request: httpx.Request) -> httpx.Response:
-        if request.url.path == "/robots.txt":
+        if request.url.path not in pages:
             return httpx.Response(404)
-        return httpx.Response(200, content=next(bodies), headers={"content-type": "text/html"})
+        body = pages[request.url.path]()
+        return httpx.Response(200, content=body, headers={"content-type": "text/html"})
 
-    store.sources.add(TALK, "event_page", "OWN", 72, "test")
-    answers = _Answers()
+    for path in pages:
+        store.sources.add(f"https://example.org{path}", "event_page", "OWN", 72, "test")
+    answers = _Answers(unrelated)
     client = httpx.Client(transport=httpx.MockTransport(handler))
     fetcher = Fetcher(store, "test-agent", min_interval_s=0, client=client)
     return Harvester(store, profile, fetcher, extractor=Extractor(answers, store)), answers
+
+
+def _event(name: str, start: str) -> bytes:
+    event = {
+        "@context": "https://schema.org",
+        "@type": "Event",
+        "name": name,
+        "startDate": start,
+        "location": {
+            "@type": "Place",
+            "name": "Example Hall",
+            "address": {"addressLocality": "München", "streetAddress": "Arcisstr. 21"},
+        },
+    }
+    script = f"<script type='application/ld+json'>{json.dumps(event)}</script>"
+    return f"<html><body><h1>{name}</h1>{script}</body></html>".encode()
+
+
+def _states(store) -> dict[str, str]:
+    with store.tx() as db:
+        rows = db.execute("SELECT url, state FROM extraction_job").fetchall()
+    return {r["url"].removeprefix("https://example.org"): r["state"] for r in rows}
 
 
 def _due_again(store) -> None:
@@ -242,7 +284,7 @@ def test_a_page_whose_text_is_unchanged_is_not_asked_about_again(store, profile)
     _due_again(store)
     harvester.harvest_due()
     harvester.extract()
-    assert len(answers.asked) == 1
+    assert len(answers.asked) == 1 and len(answers.sorted) == 1
     titles = [o.fields["title"].value for o in store.observations.all()]
     assert titles == ["Talk on 5 November", "Talk on 5 November"]
 
@@ -264,3 +306,33 @@ def test_a_source_is_due_a_few_hours_before_its_cadence_passes(store):
                 (hours, f"https://example.org/{name}"),
             )
     assert [s["url"] for s in store.sources.due()] == ["https://example.org/early"]
+
+
+def test_only_upcoming_events_about_ai_go_to_extraction(store, profile):
+    pages = {
+        "/events/past": lambda: _event("Talk on AI agents", "2020-03-01T18:00:00+01:00"),
+        "/events/museums": lambda: _event("Long Night of the Museums", "2030-10-17T18:00:00+02:00"),
+        "/events/agents": lambda: _event("Talk on AI agents", "2030-11-05T18:00:00+01:00"),
+    }
+    harvester, answers = _site(store, profile, pages, unrelated=("Museums",))
+    harvester.harvest_due()
+    harvester.extract()
+    [batch] = answers.sorted
+    assert len(batch) == 2 and not any("2020" in line for line in batch)
+    assert len(answers.asked) == 1 and "Talk on AI agents" in answers.asked[0]
+    assert _states(store) == {
+        "/events/past": "skipped",
+        "/events/museums": "skipped",
+        "/events/agents": "done",
+    }
+    assert (harvester.counts["llm_skipped"], harvester.counts["llm_unrelated"]) == (1, 1)
+
+
+def test_identical_events_on_two_pages_are_sorted_once(store, profile):
+    same = _event("Long Night of the Museums", "2030-10-17T18:00:00+02:00")
+    pages = {"/events/a": lambda: same, "/events/b": lambda: same}
+    harvester, answers = _site(store, profile, pages, unrelated=("Museums",))
+    harvester.harvest_due()
+    harvester.extract()
+    assert [len(batch) for batch in answers.sorted] == [1]
+    assert answers.asked == [] and set(_states(store).values()) == {"skipped"}

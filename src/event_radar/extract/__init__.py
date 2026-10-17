@@ -1,4 +1,5 @@
 import hashlib
+from collections.abc import Iterable
 from dataclasses import replace
 from datetime import date
 
@@ -8,6 +9,7 @@ from .. import html
 from ..model import Evidence, ParsedEvent
 from ..platforms import is_ticket_host, platform_key
 from ..store import Store
+from . import triage
 from .router import Router
 from .schema import SCHEMA, SYSTEM, VERSION
 from .verify import verify
@@ -45,6 +47,34 @@ class Extractor:
         if len(events) == 1 and event_page:
             events[0] = _with_image(events[0], body, url)
         return f"llm:{cached['model']}@{VERSION}", events
+
+    def relevant(self, candidates: dict[str, dict], kinds: Iterable[str]) -> dict[str, bool]:
+        """Which candidates, keyed by `triage.key`, are worth an extraction. Cached verdicts
+        are not asked again; the rest go to the LLM in batches, and one it leaves
+        unanswered counts as relevant (ADR 0010)."""
+        verdicts = {}
+        unknown = []
+        for key in candidates:
+            cached = self.cache.extraction.cached(key, triage.VERSION)
+            if cached is None:
+                unknown.append(key)
+            else:
+                verdicts[key] = bool(cached["relevant"])
+        for start in range(0, len(unknown), triage.BATCH):
+            batch = unknown[start : start + triage.BATCH]
+            messages = [
+                {"role": "system", "content": triage.system(kinds)},
+                {"role": "user", "content": triage.question([candidates[k] for k in batch])},
+            ]
+            model, result = self.router.complete(messages, triage.SCHEMA, name="verdicts")
+            answered = triage.answers(result, len(batch))
+            for i, key in enumerate(batch):
+                if i in answered:
+                    self.cache.extraction.cache(
+                        key, triage.VERSION, model, {"relevant": answered[i]}
+                    )
+                verdicts[key] = answered.get(i, True)
+        return verdicts
 
 
 def _with_image(event: ParsedEvent, body: bytes, url: str) -> ParsedEvent:

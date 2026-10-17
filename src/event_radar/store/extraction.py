@@ -50,6 +50,13 @@ class Extraction(Repository):
                 (state, snapshot_hash, url),
             )
 
+    def skip(self, snapshot_hash: str, url: str) -> None:
+        with self.database.tx() as db:
+            db.execute(
+                "UPDATE extraction_job SET state = %s WHERE snapshot_hash = %s AND url = %s",
+                (JobState.SKIPPED, snapshot_hash, url),
+            )
+
     def cached(self, content_hash: str, version: str) -> dict | None:
         with self.database.tx() as db:
             row = db.execute(

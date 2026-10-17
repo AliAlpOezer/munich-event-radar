@@ -58,6 +58,7 @@ class JobState(StrEnum):
     PENDING = "pending"
     DONE = "done"
     NEEDS_LOOK = "needs_look"
+    SKIPPED = "skipped"  # no call owed: the judge drops the event, or it is not about AI
 
 
 class RunOutcome(StrEnum):
