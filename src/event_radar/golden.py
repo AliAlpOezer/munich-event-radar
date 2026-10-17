@@ -59,7 +59,7 @@ def replay(repo: Path, fixtures: Path, dsn: str | None, extractor: Extractor | N
             result = ingest(store, url, digest, content_type, body, Kind.EVENT_PAGE, source_class)
             if result.needs_llm and extractor:
                 # Fixture pages have no source rows, so none counts as an event page.
-                method, events = extractor.extract(url, digest, body, event_page=False)
+                method, events = extractor.extract(url, body, event_page=False)
                 store.observations.add(digest, url, source_class, method, events)
         groups = resolve(store.observations.all())
     return _score(golden, groups, judge, now, _focus_domains(repo))

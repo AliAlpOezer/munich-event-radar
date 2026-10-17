@@ -7,7 +7,8 @@ from .database import Repository, now_iso
 
 
 class Extraction(Repository):
-    """Pages queued for the LLM, its cached answers by content hash, and its daily budget."""
+    """Pages queued for the LLM, its answers cached by the hash of what it was asked, and its
+    daily budget."""
 
     def enqueue(self, snapshot_hash: str, url: str, priority: int) -> None:
         with self.database.tx() as db:
@@ -16,6 +17,18 @@ class Extraction(Repository):
                 " VALUES (%s, %s, %s) ON CONFLICT DO NOTHING",
                 (snapshot_hash, url, priority),
             )
+
+    def drop_superseded(self) -> int:
+        """Drop the pending jobs of page versions a newer fetch of their URL replaced; only a
+        page's current version is worth asking about (ADR 0009)."""
+        with self.database.tx() as db:
+            return db.execute(
+                "WITH latest AS (SELECT DISTINCT ON (url) url, content_hash FROM snapshot"
+                "                WHERE content_hash IS NOT NULL ORDER BY url, id DESC)"
+                " DELETE FROM extraction_job j USING latest l"
+                " WHERE j.url = l.url AND j.snapshot_hash <> l.content_hash AND j.state = %s",
+                (JobState.PENDING,),
+            ).rowcount
 
     def pending(self, limit: int, urls: list[str] | None = None) -> list[dict]:
         only = " AND url = ANY(%s)" if urls is not None else ""
