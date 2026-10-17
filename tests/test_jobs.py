@@ -253,3 +253,14 @@ def test_the_llm_queue_stops_at_its_deadline(store, profile):
     harvester.extract(until=datetime.now(UTC))
     assert answers.asked == [] and len(store.extraction.pending(10)) == 1
 
+
+def test_a_source_is_due_a_few_hours_before_its_cadence_passes(store):
+    for name, hours in (("early", 20), ("recent", 10)):
+        store.sources.add(f"https://example.org/{name}", "listing", "OWN", 24, "test")
+        with store.tx() as db:
+            db.execute(
+                "UPDATE source SET last_fetched_at = now() - make_interval(hours => %s)"
+                " WHERE url = %s",
+                (hours, f"https://example.org/{name}"),
+            )
+    assert [s["url"] for s in store.sources.due()] == ["https://example.org/early"]

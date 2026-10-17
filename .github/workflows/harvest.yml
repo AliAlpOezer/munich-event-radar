@@ -1,9 +1,9 @@
 name: harvest
 on:
-  # Every 2 h, 05:17 to 21:17 UTC: 07:17 to 23:17 Berlin in summer, an hour earlier in
-  # winter. Off the full hour, when GitHub is busiest and may drop scheduled runs.
+  # Once a day (ADR 0009), 04:17 UTC: 06:17 Berlin in summer, 05:17 in winter, after the
+  # LLM budget's UTC day turns. Off the full hour, when GitHub is busiest and may drop runs.
   schedule:
-    - cron: "17 5-21/2 * * *"
+    - cron: "17 4 * * *"
   workflow_dispatch:
 concurrency:
   group: harvest
@@ -13,7 +13,7 @@ permissions:
 jobs:
   harvest:
     runs-on: ubuntu-24.04
-    timeout-minutes: 50
+    timeout-minutes: 90
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/setup
