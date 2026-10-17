@@ -9,6 +9,7 @@ import pytest
 
 from conftest import TEST_DSN
 from event_radar.extract.router import BudgetExhausted, DailyCapReached, Model, Provider, Router
+from event_radar.extract.schema import SCHEMA
 from event_radar.extract.verify import verify
 from event_radar.html import image_url
 from event_radar.judge import Judge
@@ -298,6 +299,16 @@ def test_events_outside_ai_startups_and_careers_are_off_topic():
     )
     assert fair.tier == "C" and fair.reasons[-1] == "not AI-relevant"
     assert verdict(ai_focus=False, title="Founders and investors night").tier == "C"
+
+
+def test_the_extraction_states_an_audience_from_its_own_values():
+    page = "Kinder-Uni am Campus. For children aged 8 to 12."
+    stated = {"value": "children", "quote": "For children aged 8 to 12"}
+    event, rejected = verify({"audience": stated}, page)
+    assert event.fields["audience"].value == "children" and rejected == []
+    _, rejected = verify({"audience": {**stated, "value": "kids"}}, page)
+    assert rejected == ["audience"]
+    assert "audience" in SCHEMA["properties"]["events"]["items"]["required"]
 
 
 def test_online_is_inferred_from_venue_or_meetup_description():

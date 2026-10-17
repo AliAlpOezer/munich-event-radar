@@ -88,6 +88,7 @@ EVENT_FIELDS = (
     "prerequisites",
     "kind",
     "ai_relevance",
+    "audience",
 )
 
 
