@@ -6,7 +6,7 @@ from selectolax.lexbor import LexborHTMLParser
 
 from .. import html
 from ..model import Evidence, Kind, ParsedEvent, ParseResult
-from ..platforms import is_ticket_host, listing_feed, page_events, platform_key
+from ..platforms import is_ticket_host, listing_feed, page_events, platform_key, topic_keys
 from . import ics, jsonld
 
 _RSS_LINK = re.compile(r"<item\b.*?<link>\s*(?:<!\[CDATA\[)?\s*(\S+?)\s*(?:\]\]>)?\s*</link>", re.S)
@@ -73,7 +73,8 @@ def parse(url: str, content_type: str | None, body: bytes, kind: Kind) -> ParseR
         found, method = structured, "jsonld@2"
     elif len(found) == 1 and len(structured) == 1:
         found = [replace(found[0], fields={**structured[0].fields, **found[0].fields})]
-    page_links = html.links(tree, url)
+    topics = topic_keys(tree)
+    page_links = [link for link in html.links(tree, url) if platform_key(link) not in topics]
     ticket_links = [link for link in page_links if platform_key(link)]
     if kind is not Kind.EVENT_PAGE:
         feed = listing_feed(tree)

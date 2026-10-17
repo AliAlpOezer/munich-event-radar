@@ -24,6 +24,7 @@ __all__ = [
     "page_events",
     "platform_key",
     "segments",
+    "topic_keys",
     "uid_key",
 ]
 
@@ -68,6 +69,10 @@ def uid_key(uid: str) -> str | None:
 
 def listing_feed(tree: LexborHTMLParser) -> str | None:
     return next((feed for p in PLATFORMS if (feed := p.listing_feed(tree))), None)
+
+
+def topic_keys(tree: LexborHTMLParser) -> set[str]:
+    return set().union(*(p.topic_keys(tree) for p in PLATFORMS))
 
 
 def page_events(tree: LexborHTMLParser) -> tuple[str | None, list[ParsedEvent]]:

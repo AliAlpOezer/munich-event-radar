@@ -77,3 +77,8 @@ class Platform:
     def page_events(self, tree: LexborHTMLParser) -> list[ParsedEvent]:
         """The events on one of its pages, recognised by the page, not its URL."""
         return []
+
+    def topic_keys(self, tree: LexborHTMLParser) -> set[str]:
+        """The event keys that links on one of its pages would get but that name topic
+        pages, which list events and are none."""
+        return set()

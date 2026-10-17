@@ -125,3 +125,13 @@ class Luma(Platform):
             return [_event(data, event)]
         except (AttributeError, TypeError):
             return []
+
+    def topic_keys(self, tree: LexborHTMLParser) -> set[str]:
+        """An event page names its categories, whose pages (`/climate`) look like events."""
+        data = _next_data(tree)
+        categories = data.get("categories") if isinstance(data, dict) else None
+        if not isinstance(categories, list):
+            return set()
+        slugs = (c.get("slug") for c in categories if isinstance(c, dict))
+        urls = [f"https://luma.com/{slug}" for slug in slugs if isinstance(slug, str)]
+        return {key for url in urls if (key := self.event_key(url))}

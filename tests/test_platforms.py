@@ -14,7 +14,10 @@ PLATFORM_DIR = SRC / "event_radar" / "platforms"
 FOREIGN = "https://example.org/events/2026/ai-night"
 HOST_LIKE = re.compile(r"[a-z0-9-]+(?:\.[a-z0-9-]+)+")
 DATA = '{"props":{"pageProps":{"initialData":{"data":%s}}}}'
-ODD = '{"event": {"name": "x", "geo_address_info": "Munich"}, "ticket_info": [], "hosts": [1]}'
+ODD = (
+    '{"event": {"name": "x", "geo_address_info": "Munich"}, "ticket_info": [], "hosts": [1],'
+    ' "categories": "ai"}'
+)
 PAGES = {
     "empty": "",
     "broken JSON": '{"props": [',
@@ -123,3 +126,4 @@ def test_an_adapter_answers_nothing_on_a_page_or_url_not_its_own(platform):
         page = LexborHTMLParser(f'<script id="__NEXT_DATA__">{data}</script>'.encode())
         assert platform.listing_feed(page) is None
         assert platform.page_events(page) == []
+        assert platform.topic_keys(page) == set()

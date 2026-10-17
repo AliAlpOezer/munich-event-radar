@@ -69,6 +69,11 @@ def test_luma_page_carries_registration_state():
     assert not result.needs_llm
 
 
+def test_a_luma_event_page_follows_events_but_not_its_category_pages():
+    result = parse(LUMA, "text/html", page("luma-event.html"), Kind.EVENT_PAGE)
+    assert result.follow == ("https://luma.com/example-ai-night-2",)
+
+
 def test_cms_page_without_registration_goes_to_llm():
     assert parse(CMS, "text/html", page("cms-event.html"), Kind.EVENT_PAGE).needs_llm
 
