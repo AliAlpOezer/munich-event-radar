@@ -378,6 +378,33 @@ def test_a_merge_keeps_each_users_status_and_stars(store, users):
     assert len(_stars(store)) == 2
 
 
+def test_an_event_that_turns_off_topic_is_deleted_with_what_hangs_on_it(store, users):
+    store.events.save(
+        [JudgedEvent({"url:a"}, {"title": {"value": "Dance"}}, "url", _verdict("C"), [])]
+    )
+    [event] = store.events.all()
+    alice = users()
+    with api(store, alice) as db:
+        db.execute("SELECT set_status(%s, 'applied')", (event["key"],))
+        db.execute("SELECT set_star(%s, true)", (event["key"],))
+    with store.tx() as db:
+        db.execute(
+            "INSERT INTO push_ledger (event_key, kind, fact_hash, state, created_at)"
+            " VALUES (%s, 'new', 'h', 'sent', now())",
+            (event["key"],),
+        )
+    off = Verdict(None, ("ai=unknown",), "off_topic")
+    counts = store.events.save(
+        [JudgedEvent({"url:a", "url:b"}, {"title": {"value": "Dance"}}, "url", off, [])]
+        + [JudgedEvent({"url:c"}, {"title": {"value": "Concert"}}, "url", off, [])]
+    )
+    assert counts["deleted"] == 1 and counts["new"] == 0
+    assert store.events.all() == [] and _stars(store) == []
+    with store.tx() as db:
+        for table in ("event_alias", "push_ledger", "user_state"):
+            assert db.execute(sql.SQL("SELECT FROM {}").format(sql.Identifier(table))).rowcount == 0
+
+
 def test_the_api_is_rebuilt_only_when_it_changes(store):
     def api_oid():
         with store.tx() as db:

@@ -3,7 +3,7 @@ import uuid
 from psycopg import Connection, sql
 from psycopg.types.json import Jsonb
 
-from ..model import JudgedEvent
+from ..model import OFF_TOPIC, JudgedEvent
 from .database import Repository, now_iso
 
 # Alp's statuses: the owner's rows, or the unclaimed ones until an owner exists (ADR 0005).
@@ -19,9 +19,10 @@ class Events(Repository):
 
     def save(self, judged: list[JudgedEvent]) -> dict[str, int]:
         """Write each event under the key of the oldest event sharing an alias; the
-        other events it now spans merge into it."""
+        other events it now spans merge into it. An off-topic event is not written, and
+        the events it spans are deleted (ADR 0011)."""
         stamp = now_iso()
-        counts = {"new": 0, "updated": 0, "merged": 0}
+        counts = {"new": 0, "updated": 0, "merged": 0, "deleted": 0}
         with self.database.tx() as db:
             for event in judged:
                 found = db.execute(
@@ -29,6 +30,9 @@ class Events(Repository):
                     " ON e.key = a.event_key WHERE a.alias = ANY(%s) ORDER BY e.first_seen",
                     (list(event.aliases),),
                 ).fetchall()
+                if event.verdict.drop_reason == OFF_TOPIC:
+                    counts["deleted"] += _delete(db, [r["key"] for r in found])
+                    continue
                 key = found[0]["key"] if found else uuid.uuid4().hex[:12]
                 for loser in found[1:]:
                     _merge(db, loser["key"], into=key)
@@ -69,6 +73,14 @@ class Events(Repository):
                 " SELECT e.*, COALESCE(u.status, 'none') AS user_status FROM event e"
                 " LEFT JOIN owner_state u ON u.event_key = e.key"
             ).fetchall()
+
+
+def _delete(db: Connection, keys: list[str]) -> int:
+    """Delete events with their aliases and push ledger rows; users' statuses and stars go
+    by cascade."""
+    db.execute("DELETE FROM event_alias WHERE event_key = ANY(%s)", (keys,))
+    db.execute("DELETE FROM push_ledger WHERE event_key = ANY(%s)", (keys,))
+    return db.execute("DELETE FROM event WHERE key = ANY(%s)", (keys,)).rowcount
 
 
 def _merge(db: Connection, loser: str, into: str) -> None:

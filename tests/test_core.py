@@ -254,8 +254,13 @@ def test_seed_reimport_applies_ai_focus_and_migrations_run_once(store):
 JUDGE = Judge(Profile.load(REPO / "profile.yaml"))
 
 
-def verdict(ai_focus=True, **fields):
-    return JUDGE.judge({k: {"value": v} for k, v in fields.items()}, NOW, ai_focus=ai_focus)
+def verdict(ai_focus=True, startup_focus=False, **fields):
+    return JUDGE.judge(
+        {k: {"value": v} for k, v in fields.items()},
+        NOW,
+        ai_focus=ai_focus,
+        startup_focus=startup_focus,
+    )
 
 
 def test_judge_drops_only_by_logged_rule_and_never_on_price():
@@ -269,12 +274,30 @@ def test_judge_drops_only_by_logged_rule_and_never_on_price():
 
 def test_unknown_ai_relevance_surfaces_only_for_ai_focused_organisers():
     assert verdict(ai_focus=True, title="Monthly meetup #29").tier == "B"
-    general = verdict(ai_focus=False, title="TUM tanzt!", venue="Garching Campus")
-    assert general.tier == "C" and "organiser not AI-focused" in general.reasons[-1]
-    assert verdict(ai_focus=False, title="TUM Blockchain Conference").tier == "C"
+    startup = verdict(ai_focus=False, title="Industrial Edge Workshops for Startups")
+    assert startup.tier == "C" and "organiser not AI-focused" in startup.reasons[-1]
     assert verdict(ai_focus=False, title="Workshop on AI agents").tier == "B"
     assert verdict(ai_focus=False, title="HackaTUM for computer science").tier == "A"
     assert verdict(ai_focus=False, title="Firmenkontaktmesse IKOM").tier == "A"
+
+
+def test_events_outside_ai_startups_and_careers_are_off_topic():
+    off = verdict(ai_focus=False, title="TUM tanzt!", venue="Garching Campus")
+    assert off.tier is None and off.drop_reason == "off_topic"
+    assert verdict(ai_focus=False, title="TUM Blockchain Conference").drop_reason == "off_topic"
+    paid = verdict(ai_focus=False, title="Afterwork Fermentieren", price="paid")
+    assert paid.drop_reason == "off_topic"
+    party = verdict(ai_focus=True, title="Summer party", ai_relevance="none")
+    assert party.drop_reason == "off_topic"
+    assert verdict(ai_focus=False, title="Engineers for Germany: Career Lounge").tier == "C"
+    assert (
+        verdict(ai_focus=False, title="Opportunity Hunters Talks", startup_focus=True).tier == "C"
+    )
+    fair = verdict(
+        ai_focus=False, title="Fit for TUMorrow Day", kind="career_fair", ai_relevance="none"
+    )
+    assert fair.tier == "C" and fair.reasons[-1] == "not AI-relevant"
+    assert verdict(ai_focus=False, title="Founders and investors night").tier == "C"
 
 
 def test_online_is_inferred_from_venue_or_meetup_description():

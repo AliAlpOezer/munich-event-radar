@@ -1,7 +1,8 @@
 # Relevance profile (Q3, Q5; ADR 0002 D6). The judge reads this; edit it to tune tiers.
 # Recall first: unknown price never demotes an event. Unknown AI relevance counts as
-# relevant only for organisers with `ai_focus: true` in seed/organisers.yaml; elsewhere it
-# is C (in the feed, never pushed), so general calendars such as TUM's do not flood B.
+# relevant only for organisers with `ai_focus: true` in seed/organisers.yaml. Elsewhere an
+# event is C when it is in `scope`, and off topic otherwise (ADR 0011), so general
+# calendars such as TUM's neither flood B nor fill the board with concerts.
 
 munich:
   cities: [münchen, munich, muenchen, garching, garching bei münchen, martinsried, planegg,
@@ -40,6 +41,15 @@ keywords:
     meetup: [meetup, stammtisch, community night]
     workshop: [workshop, masterclass, bootcamp]
     talk: [talk, vortrag, lecture, panel, diskussion, seminar, colloquium, kolloquium]
+
+# The radar's scope besides AI (Alp, 2026-10-17; ADR 0011). An event is off topic, and is
+# not stored, when it is not about AI, is of no `any_topic_kinds` kind, its organiser is
+# neither AI-focused nor of kind `startup`, and its title, description and organiser hold
+# none of these words.
+scope:
+  startup: [startup, start-up, founder, gründer, gründung, entrepreneur, venture capital,
+            accelerator, incubator, inkubator, pitch, investor, demo day]
+  career: [career, karriere, " job", recruiting, hiring, internship, praktikum]
 
 # Online-only signals, used when no parser states `attendance`. A venue counts only when the
 # whole venue is one of `venues` (after lowercasing and folding punctuation), so hybrid venues

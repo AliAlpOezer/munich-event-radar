@@ -117,9 +117,14 @@ class ParseResult:
     needs_llm: bool = False
 
 
+# Outside the radar's scope (ADR 0011): such an event is not stored.
+OFF_TOPIC = "off_topic"
+
+
 @dataclass(frozen=True)
 class Verdict:
-    """The judge's tier for an event, or why it was dropped."""
+    """The judge's tier for an event, or why it was dropped. Every drop is a fact about the
+    event except `OFF_TOPIC`, which the LLM's reading of the page can still change."""
 
     tier: str | None
     reasons: tuple[str, ...]
