@@ -19,7 +19,7 @@ B 12, C 6. Two upcoming events are aimed at children, both from TUM central even
 "Children's Program at the Long Night of Museums" (`fc30aa152c8d`, A on the LLM's
 `ai_relevance` quote "create social robots using AI") and "Children's University: How Is AI
 Changing the World of Images and Videos?" (`79b6398bc7f9`, B). Among the 217 observed event
-groups, the ones aimed at children or families say so in the title: seven Children's
+groups, the ones aimed at children or families say so in the title: six Children's
 University dates, the Long Night of Museums programme, and "appliedAI Developers Meetup @
 Heilbronn - Family Edition" (past, still stored). "Open House in Garching" states "Open to
 all; students, staff, external guests, families" in `prerequisites` and is for everyone. The
@@ -72,3 +72,17 @@ change keep their `events-v1` observations, with no audience.
 - pytest, node tests, ruff; replay without the LLM: A recall unchanged.
 - Before merging: a read-only dry run over the hosted observations lists every event the
   next harvest deletes and the users' marks on them.
+
+## How it landed (2026-10-18)
+
+| Check | Result |
+|---|---|
+| New tests, before the code | 4 failed (the children's event stayed B, `verify` took any audience, the stored `audience` event was kept, the children's page was asked about) |
+| pytest, node tests, ruff | 107 passed, 14 passed, clean |
+| Replay without the LLM, against `main` | A recall 0.636 on both; no golden event changes |
+| Dry run over the hosted observations (read-only, `audience_dry_run.py` in the records repository) | 3 of 162 events deleted: `fc30aa152c8d` Children's Program at the Long Night of Museums (A, held 2026-10-17; one user's star on it goes by cascade), `79b6398bc7f9` Children's University on AI and images (B), `62d844b59255` appliedAI's Family Edition meetup (past, Heilbronn). No status or push ledger row on them; no other tier changes |
+
+Seen, not changed: the scope check of ADR 0011 comes after the fact drops, so 36 stored
+events are off topic but kept as past (22), online only (13) or outside Munich (1), such as
+"TUM tanzt!" and "Finissage for the Convivium exhibition"; they show under "Show past" and
+the dropped filter.
