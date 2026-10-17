@@ -25,6 +25,8 @@ SIGNALS = ("events", "event", "upcoming", "veranstaltungen", "termine", "calenda
         ("https://lu.ma/munichnlp", "luma.com/munichnlp"),
         ("https://lu.ma/user/usr-155pp5bEZxqeQBp", "luma.com/user/usr-155pp5bEZxqeQBp"),
         ("https://www.meetup.com/aws-munich/", "meetup.com/aws-munich"),
+        ("https://www.eventbrite.de/o/example-org-123456", "eventbrite.de/o/example-org-123456"),
+        ("https://www.eventbrite.de/o/other-org-654321", "eventbrite.de/o/other-org-654321"),
     ],
 )
 def test_organiser_domain_matches_the_seed_convention(url, domain):

@@ -12,6 +12,7 @@ class Eventbrite(Platform):
     name = "eventbrite"
     hosts = ("eventbrite.com",)
     event_url = re.compile(r"^https?://(?:www\.)?eventbrite\.[a-z.]+/e/(?:[^/?#]*-)?(\d{9,})")
+    organiser_path = "o"
 
     def claims(self, url: str) -> bool:
         return bool(_HOST.fullmatch(host(url)))

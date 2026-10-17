@@ -91,6 +91,7 @@ class Luma(Platform):
         }
     )
     feed_uid = re.compile(r"^(evt-[A-Za-z0-9]+)@events\.lu\.ma$")
+    organiser_path = "user"
 
     def organiser_source(self, url: str) -> str | None:
         path = segments(url)

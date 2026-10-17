@@ -37,6 +37,7 @@ class Platform:
     not_events: frozenset[str] = frozenset()
     not_event_prefixes: tuple[str, ...] = ()
     feed_uid: re.Pattern[str] | None = None
+    organiser_path: str | None = None
 
     def claims(self, url: str) -> bool:
         """`url` is on one of its hosts or their subdomains."""
@@ -63,9 +64,10 @@ class Platform:
         return None
 
     def organiser_domain(self, url: str) -> str:
-        """The organiser registry's key for one of its pages."""
+        """The organiser registry's key for one of its pages: the host and the first path
+        segment, or the first two under `organiser_path`."""
         path = segments(url)
-        depth = 2 if path[:1] == ["user"] else 1
+        depth = 2 if path[:1] == [self.organiser_path] else 1
         return "/".join([host(url), *path[:depth]])
 
     def listing_feed(self, tree: LexborHTMLParser) -> str | None:
