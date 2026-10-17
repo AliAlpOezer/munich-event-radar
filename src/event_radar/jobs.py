@@ -2,6 +2,7 @@
 
 import contextlib
 import json
+from datetime import UTC, datetime, timedelta
 
 import httpx
 import yaml
@@ -15,6 +16,10 @@ from .intake.service import IntakeService
 from .model import RunOutcome
 from .profile import Profile
 from .store import Store
+
+# The LLM queue takes no new job this long after a harvest starts, so judging always runs
+# within the workflow's 90 minutes; one job can take 12 more (four models, 180 s each).
+LLM_MINUTES = 60
 
 
 def _profile(settings: config.Settings) -> Profile:
@@ -72,11 +77,12 @@ def harvest(settings: config.Settings) -> dict:
         extractor=Extractor(router, store) if router else None,
     )
     counts = harvester.counts
+    started = datetime.now(UTC)
     run_id = store.runs.start()
     _ping(settings, "/start")
     try:
         harvester.harvest_due()
-        harvester.extract()
+        harvester.extract(until=started + timedelta(minutes=LLM_MINUTES))
         harvester.judge_events()
         counts["pages_pruned"] = store.pages.prune()
     except Exception as exc:

@@ -2,12 +2,15 @@
 workflow, a drain works the queue and exits, store locks serialise jobs, and page bodies
 live in the store until nothing can read them again."""
 
+import re
 import threading
 import time
+from datetime import UTC, datetime
 
 import httpx
 import pytest
 
+from event_radar.extract import Extractor
 from event_radar.fetch import Fetcher
 from event_radar.harvester import Harvester
 from event_radar.intake.service import IntakeService
@@ -178,3 +181,86 @@ def test_a_malformed_link_on_a_page_does_not_stop_the_harvest(store, profile):
     assert harvester.counts["fetched"] == 2
     followed = {s["url"] for s in store.sources.all()}
     assert {"https://example.org/events/1", "https://example.org/events/2"} <= followed
+
+
+TALK = "https://example.org/events/talk"
+
+
+class _Answers:
+    """An LLM stand-in that names the page's talk as its event and keeps what it was asked."""
+
+    def __init__(self):
+        self.asked: list[str] = []
+
+    def complete(self, messages, schema, name="events"):
+        self.asked.append(messages[-1]["content"])
+        title = re.search(r"Talk on \d+ November", messages[-1]["content"]).group(0)
+        return "test-model", {"events": [{"title": {"value": title, "quote": title}}]}
+
+
+def _page(title: str, nonce: str) -> bytes:
+    return f'<h1>{title}</h1><p>Room 1</p><script>var nonce = "{nonce}";</script>'.encode()
+
+
+def _talk_site(store, profile, versions: list[bytes]) -> tuple[Harvester, _Answers]:
+    """A harvester over one event page that serves the next of `versions` on each fetch."""
+    bodies = iter(versions)
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/robots.txt":
+            return httpx.Response(404)
+        return httpx.Response(200, content=next(bodies), headers={"content-type": "text/html"})
+
+    store.sources.add(TALK, "event_page", "OWN", 72, "test")
+    answers = _Answers()
+    client = httpx.Client(transport=httpx.MockTransport(handler))
+    fetcher = Fetcher(store, "test-agent", min_interval_s=0, client=client)
+    return Harvester(store, profile, fetcher, extractor=Extractor(answers, store)), answers
+
+
+def _due_again(store) -> None:
+    with store.tx() as db:
+        db.execute("UPDATE source SET last_fetched_at = last_fetched_at - interval '4 days'")
+
+
+def test_only_the_current_version_of_a_page_goes_to_the_llm(store, profile):
+    versions = [_page("Talk on 5 November", "a"), _page("Talk on 12 November", "b")]
+    harvester, answers = _talk_site(store, profile, versions)
+    harvester.harvest_due()
+    _due_again(store)
+    harvester.harvest_due()
+    harvester.extract()
+    assert len(answers.asked) == 1 and "Talk on 12 November" in answers.asked[0]
+    assert store.extraction.pending(10) == []
+
+
+def test_a_page_whose_text_is_unchanged_is_not_asked_about_again(store, profile):
+    versions = [_page("Talk on 5 November", "a"), _page("Talk on 5 November", "b")]
+    harvester, answers = _talk_site(store, profile, versions)
+    harvester.harvest_due()
+    harvester.extract()
+    _due_again(store)
+    harvester.harvest_due()
+    harvester.extract()
+    assert len(answers.asked) == 1
+    titles = [o.fields["title"].value for o in store.observations.all()]
+    assert titles == ["Talk on 5 November", "Talk on 5 November"]
+
+
+def test_the_llm_queue_stops_at_its_deadline(store, profile):
+    harvester, answers = _talk_site(store, profile, [_page("Talk on 5 November", "a")])
+    harvester.harvest_due()
+    harvester.extract(until=datetime.now(UTC))
+    assert answers.asked == [] and len(store.extraction.pending(10)) == 1
+
+
+def test_a_source_is_due_a_few_hours_before_its_cadence_passes(store):
+    for name, hours in (("early", 20), ("recent", 10)):
+        store.sources.add(f"https://example.org/{name}", "listing", "OWN", 24, "test")
+        with store.tx() as db:
+            db.execute(
+                "UPDATE source SET last_fetched_at = now() - make_interval(hours => %s)"
+                " WHERE url = %s",
+                (hours, f"https://example.org/{name}"),
+            )
+    assert [s["url"] for s in store.sources.due()] == ["https://example.org/early"]

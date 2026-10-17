@@ -1,5 +1,9 @@
 from .database import Repository, now_iso
 
+# The daily harvest starts late by a varying amount (GitHub delays scheduled runs), so a
+# source is due this much before its cadence passes: one fetched late yesterday is due today.
+EARLY_HOURS = 6
+
 
 class Sources(Repository):
     """The pages the radar fetches, each on its own cadence, with its fetch record."""
@@ -57,16 +61,17 @@ class Sources(Repository):
             }
 
     def due(self, browser: bool = False) -> list[dict]:
-        """Sources whose cadence has passed: never fetched first, event pages last."""
+        """Sources whose cadence has passed, less `EARLY_HOURS`: never fetched first, event
+        pages last."""
         with self.database.tx() as db:
             return db.execute(
                 "SELECT s.* FROM source s LEFT JOIN organiser o ON o.id = s.organiser_id"
                 " WHERE s.browser = %s AND COALESCE(o.status, 'active') <> 'removed'"
                 " AND (s.last_fetched_at IS NULL"
-                "      OR s.last_fetched_at + make_interval(hours => s.cadence_hours)"
+                "      OR s.last_fetched_at + make_interval(hours => s.cadence_hours - %s)"
                 "         <= %s::timestamptz)"
                 " ORDER BY s.last_fetched_at IS NOT NULL, s.kind = 'event_page', s.id",
-                (bool(browser), now_iso()),
+                (bool(browser), EARLY_HOURS, now_iso()),
             ).fetchall()
 
     def mark(self, source_id: int, ok: bool, error: str | None, yielded: int | None) -> None:

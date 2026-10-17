@@ -57,7 +57,7 @@ Every job runs on GitHub Actions; no machine of ours has to be on.
 
 | Workflow | When | Does |
 |---|---|---|
-| `harvest` | every 2 h, 05:17-21:17 UTC | `event-radar seed`, then `harvest`: fetch, extract with OpenRouter, judge |
+| `harvest` | daily, 04:17 UTC | `event-radar seed`, then `harvest`: fetch what is due, extract with OpenRouter (at most 60 min), judge |
 | `browse` | Sundays 03:17 UTC | `event-radar browse`: renders JavaScript-only sources with Chromium |
 | `intake` | dispatched by Postgres when an intake is queued, and hourly | `event-radar intakes`: works the queue, then exits |
 | `test` | every push and pull request | ruff and pytest against a Postgres 17 service, and the page's node tests |

@@ -95,17 +95,22 @@ class Harvester:
                 source["organiser_id"],
             )
 
-    def extract(self, urls: list[str] | None = None) -> None:
-        """Work the LLM queue, or only the pages of `urls`, until the budget runs out."""
+    def extract(self, urls: list[str] | None = None, until: datetime | None = None) -> None:
+        """Work the LLM queue, or only the pages of `urls`, until the budget runs out or
+        `until` passes; jobs for a page's older versions are dropped first."""
         if self.extractor is None:
             return
+        self.counts["llm_superseded"] += self.store.extraction.drop_superseded()
         for job in self.store.extraction.pending(limit=LLM_BATCH, urls=urls):
+            if until and datetime.now(UTC) >= until:
+                self.counts["llm_deferred"] += 1
+                return
             url, digest = job["url"], job["snapshot_hash"]
             source = self.store.sources.get(url)
             event_page = bool(source and source["kind"] == Kind.EVENT_PAGE)
             try:
                 method, events = self.extractor.extract(
-                    url, digest, self.store.pages.body(digest), event_page
+                    url, self.store.pages.body(digest), event_page
                 )
             except (BudgetExhausted, DailyCapReached):
                 self.counts["llm_deferred"] += 1

@@ -1,3 +1,4 @@
+import hashlib
 from dataclasses import replace
 from datetime import date
 
@@ -14,27 +15,28 @@ from .verify import verify
 
 class Extractor:
     """Asks the LLM for the events on a page without structured data, keeping only the
-    fields its quotes ground in the page (ADR 0002 D8). Answers are cached by content
-    hash in `cache`, so a page is never asked about twice."""
+    fields its quotes ground in the page (ADR 0002 D8). Answers are cached in `cache` by the
+    hash of the question, the page's URL and text, so a page whose markup changes but whose
+    text does not is never asked about again (ADR 0009)."""
 
     def __init__(self, router: Router, cache: Store):
         self.router = router
         self.cache = cache
 
-    def extract(
-        self, url: str, digest: str, body: bytes, event_page: bool
-    ) -> tuple[str, list[ParsedEvent]]:
+    def extract(self, url: str, body: bytes, event_page: bool) -> tuple[str, list[ParsedEvent]]:
         """The observation method and the events found; an event page lends its image."""
         text = html.text(body, url)
-        cached = self.cache.extraction.cached(digest, VERSION)
+        question = f"Page URL: {url}\n\nPage text:\n{text}"
+        key = hashlib.sha256(question.encode()).hexdigest()
+        cached = self.cache.extraction.cached(key, VERSION)
         if cached is None:
             messages = [
                 {"role": "system", "content": SYSTEM.replace("TODAY", date.today().isoformat())},
-                {"role": "user", "content": f"Page URL: {url}\n\nPage text:\n{text}"},
+                {"role": "user", "content": question},
             ]
             model, result = self.router.complete(messages, SCHEMA)
             cached = {"model": model, "result": result}
-            self.cache.extraction.cache(digest, VERSION, model, cached)
+            self.cache.extraction.cache(key, VERSION, model, cached)
         events = []
         for raw in cached["result"].get("events") or []:
             event, _ = verify(raw, text)

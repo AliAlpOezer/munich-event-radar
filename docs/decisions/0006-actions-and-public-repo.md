@@ -1,6 +1,6 @@
 # ADR 0006: Harvest on GitHub Actions, and a public repository
 
-**Status:** DECIDED, being built
+**Status:** DECIDED, being built. D1's harvest schedule is superseded by ADR 0009 (once a day)
 **Date:** 2026-10-12
 **Inputs:** Alp, 2026-10-12: "go ahead with GitHub Actions. We can convert the project also
 into a public project", provided the whole codebase first meets a clean-code bar; and Alp's
