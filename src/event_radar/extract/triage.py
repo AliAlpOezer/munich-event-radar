@@ -11,7 +11,7 @@ from .. import html
 from ..model import Kind
 from ..parse import parse
 
-VERSION = "triage-v1"
+VERSION = "triage-v2"
 BATCH = 20
 _FIELDS = ("title", "starts_at", "ends_at", "venue", "address", "city", "organiser", "description")
 _TEXT = 600
@@ -37,10 +37,11 @@ SCHEMA = {
 def system(kinds: Iterable[str]) -> str:
     any_topic = ", ".join(k.replace("_", " ") + "s" for k in kinds)
     return (
-        "You sort events for a radar of AI events in Munich. Each numbered line is one event"
-        " as JSON, or a page's title and opening text. An event is relevant when it is about"
-        " artificial intelligence, machine learning or data science, or when it is one of"
-        f" these, whatever its topic: {any_topic}. Answer every id with"
+        "You sort events for a radar of AI, startup and career events in Munich. Each"
+        " numbered line is one event as JSON, or a page's title and opening text. An event is"
+        " relevant when it is about artificial intelligence, machine learning or data"
+        " science; about startups, founding or investing; about careers, jobs or hiring; or"
+        f" when it is one of these, whatever its topic: {any_topic}. Answer every id with"
         ' {"id": <number>, "relevant": true or false}; when unsure, answer true.'
     )
 
