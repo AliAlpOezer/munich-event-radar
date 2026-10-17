@@ -2,7 +2,7 @@
 
 import re
 from dataclasses import dataclass
-from urllib.parse import urljoin, urlsplit
+from urllib.parse import urlsplit
 
 from selectolax.lexbor import LexborHTMLParser
 
@@ -43,8 +43,9 @@ def declared_feeds(tree: LexborHTMLParser, base: str) -> list[str]:
     feeds = []
     for link in tree.css("link[rel~='alternate'][href]"):
         kind = (link.attributes.get("type") or "").lower()
-        if any(t in kind for t in _FEED_TYPES):
-            feeds.append(urljoin(base, link.attributes["href"]))
+        url = html.absolute(base, link.attributes["href"])
+        if url and any(t in kind for t in _FEED_TYPES):
+            feeds.append(url)
     feeds += [url for url in html.links(tree, base) if urlsplit(url).path.endswith(".ics")]
     if feed := listing_feed(tree):
         feeds.append(feed)
