@@ -4,9 +4,10 @@ from urllib.parse import urlsplit
 
 from selectolax.lexbor import LexborHTMLParser
 
+from .. import html
 from ..model import Evidence, Kind, ParsedEvent, ParseResult
 from ..platforms import is_ticket_host, platform_key
-from . import html, ics, jsonld, luma
+from . import ics, jsonld, luma
 
 _RSS_LINK = re.compile(r"<item\b.*?<link>\s*(?:<!\[CDATA\[)?\s*(\S+?)\s*(?:\]\]>)?\s*</link>", re.S)
 _DETAIL_PATH = re.compile(r"/(events?|veranstaltung(en)?|termine?|details?)/", re.I)

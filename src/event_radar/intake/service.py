@@ -8,13 +8,12 @@ from urllib.parse import urlsplit
 import httpx
 from selectolax.lexbor import LexborHTMLParser
 
-from .. import config
+from .. import config, html
 from ..extract import Extractor
 from ..extract.router import AllModelsFailed, BudgetExhausted, DailyCapReached, Router
 from ..fetch import Fetcher, Politeness
 from ..harvester import Harvester, cadence_hours
 from ..model import IntakeState, OrganiserStatus
-from ..parse import html
 from ..platforms import canonical
 from ..profile import Profile
 from ..render import Renderer

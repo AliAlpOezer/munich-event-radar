@@ -3,8 +3,8 @@ from datetime import date
 
 from selectolax.lexbor import LexborHTMLParser
 
+from .. import html
 from ..model import Evidence, ParsedEvent
-from ..parse import html
 from ..platforms import is_ticket_host, platform_key
 from ..store import Store
 from .router import Router

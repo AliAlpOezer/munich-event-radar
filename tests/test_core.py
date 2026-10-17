@@ -9,10 +9,10 @@ import pytest
 from conftest import TEST_DSN
 from event_radar.extract.router import BudgetExhausted, DailyCapReached, Model, Router
 from event_radar.extract.verify import verify
+from event_radar.html import image_url
 from event_radar.judge import Judge
 from event_radar.model import Evidence, Kind, Observation, SourceClass
 from event_radar.parse import parse
-from event_radar.parse.html import image_url
 from event_radar.platforms import platform_key
 from event_radar.profile import Profile
 from event_radar.resolve import local_minute, resolve

@@ -2,8 +2,8 @@ import json
 
 from selectolax.lexbor import LexborHTMLParser
 
+from ..html import image_url
 from ..model import Evidence, ParsedEvent
-from .html import image_url
 
 
 def _availability(data: dict, ticket: dict, event: dict) -> str:

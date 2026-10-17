@@ -6,9 +6,10 @@ from urllib.parse import urljoin, urlsplit
 
 from selectolax.lexbor import LexborHTMLParser
 
+from .. import html
 from ..fetch import Fetcher
 from ..model import Kind
-from ..parse import html, luma, parse
+from ..parse import luma, parse
 from ..platforms import canonical, platform_key
 from ..render import Renderer
 from ..store import Store

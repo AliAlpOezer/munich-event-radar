@@ -2,8 +2,8 @@ import json
 
 from selectolax.lexbor import LexborHTMLParser
 
+from ..html import image_url
 from ..model import Evidence, ParsedEvent
-from .html import image_url
 
 _AVAILABILITY = {
     "SoldOut": "sold_out",
