@@ -1,14 +1,20 @@
-"""Eventbrite: event pages end in the event's numeric id, organisers sit under `/o/`."""
+"""Eventbrite, on eventbrite.com and its country domains: event pages end in the event's
+numeric id, organisers sit under `/o/`."""
 
 import re
 
 from .base import Platform, host, segments
 
+_HOST = re.compile(r"(?:.+\.)?eventbrite\.(?:com|co|[a-z]{2})(?:\.[a-z]{2})?")
+
 
 class Eventbrite(Platform):
     name = "eventbrite"
-    hosts = ("eventbrite.",)
+    hosts = ("eventbrite.com",)
     event_url = re.compile(r"^https?://(?:www\.)?eventbrite\.[a-z.]+/e/(?:[^/?#]*-)?(\d{9,})")
+
+    def claims(self, url: str) -> bool:
+        return bool(_HOST.fullmatch(host(url)))
 
     def organiser_source(self, url: str) -> str | None:
         path = segments(url)

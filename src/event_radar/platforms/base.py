@@ -9,8 +9,11 @@ from ..model import ParsedEvent
 
 
 def host(url: str) -> str:
-    """The URL's host, lower case and without `www.`."""
-    return (urlsplit(url).hostname or "").removeprefix("www.")
+    """The URL's host, lower case and without `www.`; empty when it has none."""
+    try:
+        return (urlsplit(url).hostname or "").removeprefix("www.")
+    except ValueError:
+        return ""
 
 
 def canonical(url: str) -> str:
@@ -36,11 +39,9 @@ class Platform:
     feed_uid: re.Pattern[str] | None = None
 
     def claims(self, url: str) -> bool:
-        try:
-            netloc = urlsplit(url).netloc.lower()
-        except ValueError:
-            return False
-        return any(h in netloc for h in self.hosts)
+        """`url` is on one of its hosts or their subdomains."""
+        name = host(url)
+        return any(name == h or name.endswith(f".{h}") for h in self.hosts)
 
     def event_key(self, url: str) -> str | None:
         """`<name>:<id>` when `url` is one of its event pages."""

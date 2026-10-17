@@ -1,16 +1,18 @@
 """The platform adapters' invariants (ADR 0008) and the registry's answers."""
 
 import ast
+import re
 from pathlib import Path
 
 import pytest
 from selectolax.lexbor import LexborHTMLParser
 
-from event_radar.platforms import PLATFORMS, listing_feed, uid_key
+from event_radar.platforms import PLATFORMS, is_ticket_host, listing_feed, uid_key
 
 SRC = Path(__file__).resolve().parents[1] / "src"
 PLATFORM_DIR = SRC / "event_radar" / "platforms"
 FOREIGN = "https://example.org/events/2026/ai-night"
+HOST_LIKE = re.compile(r"[a-z0-9-]+(?:\.[a-z0-9-]+)+")
 DATA = '{"props":{"pageProps":{"initialData":{"data":%s}}}}'
 ODD = '{"event": {"name": "x", "geo_address_info": "Munich"}, "ticket_info": [], "hosts": [1]}'
 PAGES = {
@@ -43,8 +45,14 @@ def _imports(path: Path, tree: ast.Module):
             yield from (f"{module}.{alias.name}" for alias in node.names)
 
 
-def test_no_platform_host_is_named_outside_its_adapter():
+def _names_a_platform(text: str) -> bool:
     hosts = {h for p in PLATFORMS for h in p.hosts}
+    return any(h in text for h in hosts) or any(
+        p.claims(f"https://{name}/") for name in HOST_LIKE.findall(text.lower()) for p in PLATFORMS
+    )
+
+
+def test_no_platform_host_is_named_outside_its_adapter():
     named = [
         (path.name, node.value)
         for path, tree in _modules()
@@ -52,7 +60,7 @@ def test_no_platform_host_is_named_outside_its_adapter():
         for node in ast.walk(tree)
         if isinstance(node, ast.Constant)
         and isinstance(node.value, str)
-        and any(h in node.value for h in hosts)
+        and _names_a_platform(node.value)
     ]
     assert named == []
 
@@ -71,7 +79,26 @@ def test_platforms_have_their_own_names_and_hosts():
     assert len({p.name for p in PLATFORMS}) == len(PLATFORMS)
     for platform in PLATFORMS:
         for host in platform.hosts:
-            assert [p for p in PLATFORMS if p.claims(f"https://{host}/")] == [platform]
+            url = f"https://www.{host}/forms/d/x"  # a path every platform claims on its hosts
+            assert [p for p in PLATFORMS if p.claims(url)] == [platform]
+
+
+@pytest.mark.parametrize(
+    ("url", "ticket"),
+    [
+        ("https://docs.google.com/forms/d/e/1FAIpQLSexample/viewform", True),
+        ("https://docs.google.com/document/d/1example/edit", False),
+        ("https://docs.google.com/spreadsheets/d/1example", False),
+        ("https://api.lu.ma/ics/get?entity=calendar&id=cal-example", True),
+        ("https://www.eventbrite.co.uk/e/ai-night-tickets-123456789", True),
+        ("https://www.eventbrite.de/o/example-org-123456", True),
+        ("https://notluma.com/example-ai-night", False),
+        ("https://luma.com.example.org/example-ai-night", False),
+        ("https://xmeetup.com/aws-munich/events/123456/", False),
+    ],
+)
+def test_a_platform_claims_its_hosts_and_their_subdomains_only(url, ticket):
+    assert is_ticket_host(url) is ticket
 
 
 def test_a_feed_uid_names_its_platform_event():

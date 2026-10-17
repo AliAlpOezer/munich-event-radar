@@ -3,7 +3,7 @@ has a key; the services list no events of their own."""
 
 import re
 
-from .base import Platform
+from .base import Platform, host, segments
 
 
 class Typeform(Platform):
@@ -22,3 +22,9 @@ class GoogleForms(Platform):
     name = "gform"
     hosts = ("forms.gle", "docs.google.com")
     event_url = re.compile(r"^https?://(?:forms\.gle/|docs\.google\.com/forms/d/(?:e/)?)([\w-]+)")
+
+    def claims(self, url: str) -> bool:
+        """A form; Docs and Sheets share the host."""
+        if not super().claims(url):
+            return False
+        return host(url) != "docs.google.com" or segments(url)[:1] == ["forms"]
