@@ -1,6 +1,7 @@
 # ADR 0011: Events outside the radar's scope leave the board and the database
 
-**Status:** DECIDED, built on branch `off-topic`
+**Status:** DECIDED, built on branch `off-topic`; amended 2026-10-18 (D8, D9, branch
+`scope-first`)
 **Date:** 2026-10-17
 **Inputs:** Alp, 2026-10-17: "let us clean the supabase data base unrelevant events", then,
 asked what counts as relevant: AI, startup and career events (not every tech event), and
@@ -83,3 +84,23 @@ but not about AI.
 
 Seen, not changed: 3 stored online-only events come from no current observation group,
 so no run rewrites them; nothing deletes an event whose sources are gone.
+
+## Amendment (2026-10-18): the scope check comes before the fact drops
+
+**Inputs:** Alp, 2026-10-18, on the stored events that are off topic but kept as past, online
+only or outside Munich: delete them "if they are irrelevant". ADR 0012 D5 put the audience
+check first for the same reason.
+
+The scope check ran after the past, online-only and outside-Munich drops, so an off-topic
+event stayed stored while one of them applied, against invariant 3: 47 events on
+2026-10-18 (past 31, online only 14, outside Munich 2), such as "TUM tanzt!", TUM's info
+sessions on Master's programmes and visas, and "Finissage for the Convivium exhibition".
+They show under "Show past" and the dropped filter, and an event deleted as off topic while
+upcoming came back as past once its day had gone. Checked one by one before deleting them,
+some were not irrelevant: START Munich and CDTM events judged on a bare title, since their
+Luma pages had no description read (ADR 0013).
+
+| # | Decision | Rejected, and why |
+|---|---|---|
+| 8 | The scope check comes before the fact drops, right after the audience check (ADR 0012 D5): an off-topic event is deleted whatever its date, attendance or place | After them, as built on 2026-10-17: the 47 stay, and an upcoming event deleted as off topic returns as past. Deleting the stored rows once: the next harvest rebuilds them |
+| 9 | A fact drop still skips the relevance question and the extraction, off topic or not (`Judge.fact_drop`) | Asking about every past, online-only or outside-Munich page: a triage call per page for an event that is off the board either way, which could only decide whether it shows under "Show past" or the dropped filter |
