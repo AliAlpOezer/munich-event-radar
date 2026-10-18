@@ -103,6 +103,22 @@ def test_cms_page_without_registration_goes_to_llm():
     assert parse(CMS, "text/html", page("cms-event.html"), Kind.EVENT_PAGE).needs_llm
 
 
+def test_a_structured_event_keeps_its_description_as_plain_lines():
+    body = b"""<script type="application/ld+json">{"@type": "Event", "name": "Open House",
+    "startDate": "2026-11-05T18:00:00+01:00", "description":
+    "<p>Meet the <strong>founders</strong> of R&amp;D teams.</p><p>Doors at 18:00<br>Garching</p>"
+    }</script>"""
+    result = parse("https://example.org/events/open-house", "text/html", body, Kind.EVENT_PAGE)
+    fields = {k: v.value for k, v in result.events[0].fields.items()}
+    assert fields["description"] == "Meet the founders of R&D teams.\nDoors at 18:00\nGarching"
+    assert verdict(ai_focus=False, **fields).tier == "C"
+    fields.pop("description")
+    assert verdict(ai_focus=False, **fields).drop_reason == "off_topic"
+    long = body.replace(b"Garching", b"Garching " * 400)
+    long_event = parse("https://example.org/e", "text/html", long, Kind.EVENT_PAGE).events[0]
+    assert len(long_event.fields["description"].value) == 2000
+
+
 def test_event_pages_keep_a_cover_image():
     luma = parse(LUMA, "text/html", page("luma-event.html"), Kind.EVENT_PAGE)
     assert luma.events[0].fields["image"].value.startswith("https://images.lumacdn.com/")
@@ -300,8 +316,11 @@ def test_keywords_match_whole_words_whatever_the_punctuation():
 
     for text in ("Agents and AI, live", "Tools (AI) for teams", "AI-powered search", "KI-gestützt"):
         assert relevance(text) == "core", text
+    for text in ("LLMs for teams", "LLM-based search"):
+        assert relevance(text) == "core", text
     for text in ("Confidential computing aims to help", "Fresh air in Dubai", "Ski-Ausflug"):
         assert relevance(text) == "unknown", text
+    assert relevance("Questions about enrollment and housing") == "unknown"
     assert verdict(ai_focus=False, title="Meet the Start-up Founders").tier == "C"
 
 

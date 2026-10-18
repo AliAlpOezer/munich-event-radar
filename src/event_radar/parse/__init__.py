@@ -77,7 +77,7 @@ def parse(url: str, content_type: str | None, body: bytes, kind: Kind) -> ParseR
     method, found = page_events(tree)
     structured = jsonld.events(tree, url)
     if not found:
-        found, method = structured, "jsonld@2"
+        found, method = structured, "jsonld@3"
     elif len(found) == 1 and len(structured) == 1:
         found = [replace(found[0], fields={**structured[0].fields, **found[0].fields})]
     if is_topic_page(tree):
