@@ -26,6 +26,7 @@ that its own page does not state.
 | The judge rebuilds every event from all observations on every run | `Harvester.judge_events`; so a verdict made only by the intake would not survive the next run |
 | A date can be found in page text in German and English forms | `extract/verify.py` `_date_in_quote` already checks the LLM's date quotes this way |
 | Alp's words "coding" and "developer" are not scope words | `profile.yaml` `scope` holds startup and career words only (ADR 0011: AI, startups and careers, "not every tech event") |
+| A `developer` scope group (`" coding "`, developer, programming, software engineer) moves no verdict on today's board | Hosted observations, read-only, 2026-10-18: `board_dump.py` on `main` 68231c2 and on the same tree with the group added, `board_compare.py`: 0 of 235 groups move (A 16, B 14, C 10, off topic 87, past 86, online only 12, audience 8, outside Munich 2 on both) |
 
 ## Invariants
 
@@ -86,6 +87,7 @@ every 72 hours.
 | 6 | A page that needs the LLM is extracted at once, one call within the daily budget, without the relevance question; when the budget is spent it waits in the queue like any page | Waiting for the daily harvest: up to a day before the person sees a result. The organisation intake's extraction of every page found: that is for an admin-approved organiser, not a stranger's URL |
 | 7 | Removal is an admin's `api.remove_event(intake_id)`: in one transaction it deletes the source, its LLM jobs and observations, and the event with its aliases, push ledger rows and marks, then sets the intake `removed`; `suggest_event` refuses that URL for anyone but an admin | A hidden flag on the event: `judge_events` rewrites every event each run. A one-off cleanup script per case, as for the Luma category pages (ADR 0008, 2026-10-17): an admin needs the action from the page |
 | 8 | At most 5 open (queued or working) and 10 a day per account that is not an admin; one intake per canonical URL | Organisations' cap only (5 in review): event intakes do not wait in review, so a cap on review states would not hold |
+| 9 | `profile.yaml` `scope` gains a `developer` group: `" coding "` (a word, so not "encoding"), developer, programming, software engineer; for every event, as Alp named "coding, developer" as relevant words | Only for submitted events: invariant 2. Leaving the scope as ADR 0011 set it: a submitted coding event would be refused though Alp counts it relevant; measured, the group changes nothing stored today |
 
 ## Components and seams
 
@@ -130,7 +132,7 @@ Each step its own commit, tests first.
 | # | Step | Check |
 |---|---|---|
 | 1 | Migration 0004: `intake.kind`, `starts_on`, `place`, state `removed`; `api.suggest_event`, `api.remove_event`; `intakes` view columns | `test_access`: logged out refused; caps; a removed URL refused; `remove_event` admin only and removes everything in one transaction |
-| 2 | An organiser-less source follows no links | a test with the Luma fixture's "Part two" link |
+| 2 | An organiser-less source follows no links; then, its own commit, the `developer` scope group (D9) | a test with the Luma fixture's "Part two" link; a judge test that a coding meetup is in scope and "encoding" is not |
 | 3 | `intake/event.py`, checks 1 to 7, and the drain's dispatch by kind | `test_intake` with hand-written fixtures: a structured page passes; a wrong date is refused with the page's date; a listing is refused; a text-only page passes the gate; past, online, outside Munich, off topic refused; a tracked URL ends `done` with its event |
 | 4 | Harvesting: source, ingest, one extraction without the relevance question, judge, the re-check after extraction | a fake router; the budget spent leaves the page queued and the intake `done` with that said |
 | 5 | Page: "Add an event" in the board toolbar for logged-in users, the intake card, the admin's "Remove" | node tests for any pure function; a Playwright walk at 1280 and 375 px, light and dark |
