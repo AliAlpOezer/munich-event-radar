@@ -30,8 +30,9 @@ class OrganiserStatus(StrEnum):
 
 
 class IntakeState(StrEnum):
-    """An organisation intake's progress (ADR 0003). Working states are requeued when a
-    job is cut off mid-step."""
+    """An intake's progress: an organisation's (ADR 0003) or an event's, which skips
+    profiling, review and finding (ADR 0014). Working states are requeued when a job is cut
+    off mid-step."""
 
     REVIEW = "review"
     QUEUED = "queued"
@@ -42,6 +43,7 @@ class IntakeState(StrEnum):
     DONE = "done"
     REJECTED = "rejected"
     FAILED = "failed"
+    REMOVED = "removed"  # an added event an admin took off the board
 
 
 WORKING_INTAKE_STATES = (
