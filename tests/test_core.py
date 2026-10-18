@@ -71,6 +71,18 @@ def test_luma_page_carries_registration_state():
     assert not result.needs_llm
 
 
+def test_a_luma_page_keeps_its_description_for_the_scope_check():
+    result = parse(LUMA, "text/html", page("luma-event.html"), Kind.EVENT_PAGE)
+    fields = {k: v.value for k, v in result.events[0].fields.items()}
+    assert fields["description"] == (
+        "Builders and founders show what they shipped.\nDemos, then drinks.\nDoors open at 18:00"
+    )
+    bare = {**fields, "title": "The Night Shift", "organiser": "START Munich"}
+    assert verdict(ai_focus=False, **bare).tier == "C"
+    bare.pop("description")
+    assert verdict(ai_focus=False, **bare).drop_reason == "off_topic"
+
+
 def test_a_luma_event_page_follows_events_but_not_its_category_pages():
     result = parse(LUMA, "text/html", page("luma-event.html"), Kind.EVENT_PAGE)
     assert result.follow == ("https://luma.com/example-ai-night-2",)
