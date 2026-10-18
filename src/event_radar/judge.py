@@ -84,10 +84,9 @@ class Judge:
             return True
         return any(w in self._text(fields) for w in self.profile.scope_keywords)
 
-    def judge(self, fields: dict, now: datetime, *, ai_focus: bool, startup_focus: bool) -> Verdict:
-        audience, phrase = self.audience(fields)
-        if audience:
-            return Verdict(None, tuple(filter(None, (f"audience={audience}", phrase))), AUDIENCE)
+    def fact_drop(self, fields: dict, now: datetime) -> Verdict | None:
+        """The drop for a fact of the event, whatever its topic: past, online only or
+        outside Munich."""
         today = now.date().isoformat()
         last_day = local_date(field_value(fields, "ends_at") or field_value(fields, "starts_at"))
         if last_day and last_day < today:
@@ -97,6 +96,12 @@ class Judge:
             return Verdict(None, tuple(filter(None, (evidence,))), "online_only")
         if self._in_munich(fields) is False:
             return Verdict(None, (), "outside_munich")
+        return None
+
+    def judge(self, fields: dict, now: datetime, *, ai_focus: bool, startup_focus: bool) -> Verdict:
+        audience, phrase = self.audience(fields)
+        if audience:
+            return Verdict(None, tuple(filter(None, (f"audience={audience}", phrase))), AUDIENCE)
         price = field_value(fields, "price") or "unknown"
         kind = self.kind(fields)
         relevance = self.ai_relevance(fields)
@@ -105,6 +110,8 @@ class Judge:
             fields, kind, relevance, ai_focus=ai_focus, startup_focus=startup_focus
         ):
             return Verdict(None, reasons, OFF_TOPIC)
+        if drop := self.fact_drop(fields, now):
+            return drop
         if price == "paid":
             return Verdict("C", reasons + ("paid, no free route",))
         if relevance == "none":

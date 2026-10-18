@@ -319,6 +319,13 @@ def test_the_kind_comes_from_the_title_not_the_description():
     assert verdict(title="Fundraising in the age of AI", kind="conference").tier == "A"
 
 
+def test_an_off_topic_event_is_off_topic_whatever_its_date_or_place():
+    for facts in ({"starts_at": "2026-10-01"}, {"attendance": "online"}, {"city": "Berlin"}):
+        assert verdict(ai_focus=False, title="TUM tanzt!", **facts).drop_reason == "off_topic"
+    lounge = verdict(ai_focus=False, title="Career Lounge", starts_at="2026-10-01")
+    assert lounge.drop_reason == "past"
+
+
 def test_events_outside_ai_startups_and_careers_are_off_topic():
     off = verdict(ai_focus=False, title="TUM tanzt!", venue="Garching Campus")
     assert off.tier is None and off.drop_reason == "off_topic"

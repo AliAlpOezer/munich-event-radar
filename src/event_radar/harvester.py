@@ -10,7 +10,7 @@ from .extract import Extractor, triage
 from .extract.router import AllModelsFailed, BudgetExhausted, DailyCapReached
 from .fetch import Fetcher
 from .judge import Judge
-from .model import OFF_TOPIC, JobState, JudgedEvent, Kind, SourceClass
+from .model import JobState, JudgedEvent, Kind, SourceClass
 from .pipeline import ingest
 from .profile import Profile
 from .render import Renderer
@@ -135,9 +135,9 @@ class Harvester:
 
     def _worth_extracting(self, jobs: list[dict]) -> list[dict]:
         """The jobs worth an extraction call (ADR 0010): the judge skips the events it
-        drops for a fact, an AI-focused or startup organiser's pages need no question, and
-        the LLM sorts the rest in batches, off topic or not (ADR 0011). The others become
-        `skipped`."""
+        drops for their audience or a fact, whatever their topic, an AI-focused or startup
+        organiser's pages need no question, and the LLM sorts the rest in batches, off
+        topic or not (ADR 0011). The others become `skipped`."""
         now = datetime.now(UTC)
         focused = self.store.sources.focused_urls()
         startups = self.store.sources.startup_urls()
@@ -148,13 +148,7 @@ class Harvester:
             ident = (job["snapshot_hash"], job["url"])
             candidate, fields = triage.candidate(job["url"], self.store.pages.body(ident[0]))
             ai_focus, startup_focus = job["url"] in focused, job["url"] in startups
-            drop = (
-                fields
-                and self.judge.judge(
-                    fields, now, ai_focus=ai_focus, startup_focus=startup_focus
-                ).drop_reason
-            )
-            if drop and drop != OFF_TOPIC:
+            if fields and (self.judge.audience(fields)[0] or self.judge.fact_drop(fields, now)):
                 self.store.extraction.skip(*ident)
                 self.counts["llm_skipped"] += 1
             elif ai_focus or startup_focus:
