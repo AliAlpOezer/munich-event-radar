@@ -101,3 +101,12 @@ Measured read-only on the hosted observations, 2026-10-18:
 | Events on the board | TUM's and Eventbrite's events show their teaser on the detail page, and the page's search finds them by it |
 | An upcoming TUM "Science Manager" info session held in person | C: its teaser names "career opportunities", and a career word puts an event in scope (ADR 0011) |
 | Not measured | The relevance question (ADR 0010) now sees the descriptions of structured pages, so the LLM's triage of them may move |
+
+### How the amendment landed (2026-10-18)
+
+| Check | Result |
+|---|---|
+| New tests, against the code before the change | 2 failed (no `description` on a structured event; "enrollment" made a meetup AI core) |
+| pytest, node tests, ruff | 148 passed, 19 passed, clean |
+| Replay without the LLM, against `main` | identical report, A recall 0.636 |
+| Dry run over the hosted observations, against `main` (`board_dump.py` now parses JSON-LD observations again too, as their source's kind, matched by every field besides the description; 110 parsed again, none unmatched, 402 older ones have no stored body left) | D5 alone moves nothing. D4 and D5 move 2, neither onto the board: "Information Session on the TUM Science Manager (Level 2)" off topic to online only (venue "Online"), "Information Session TUM Science Manager (Level 2)" off topic to past. D4 without D5 moves a third, "Late Arrivals Info Session", off topic to online only, as AI core. No status, star or push ledger row on them |
