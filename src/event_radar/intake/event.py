@@ -197,6 +197,10 @@ class EventIntake:
 
     def _check(self, row: dict, fields: dict, text: str, needs_llm: bool) -> None:
         """Checks 5 to 7 on the page's structured event, or on its text without one."""
+        if not fields and not text:
+            raise Refused(
+                "The page shows no text without JavaScript; give the event's ticket page instead."
+            )
         check_day(row["starts_on"], fields, text)
         check_place(row["place"], fields, text, self.profile.cities)
         check_relevance(self.judge, fields, text, needs_llm, datetime.now(UTC))

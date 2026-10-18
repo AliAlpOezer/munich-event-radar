@@ -355,8 +355,15 @@ def test_a_page_without_structured_data_passes_on_its_words(store, profile):
             "Munich",
             "The page is not about AI, startups, careers or coding.",
         ),
+        (
+            # aistrategyconference.com, 2026-10-18: the page renders only with JavaScript.
+            '<html><body><div id="root"></div><script src="/app.js"></script></body></html>',
+            date(2030, 11, 5),
+            "Munich",
+            "The page shows no text without JavaScript; give the event's ticket page instead.",
+        ),
     ],
-    ids=["other day", "listing", "no day", "no year", "other place", "no topic words"],
+    ids=["other day", "listing", "no day", "no year", "other place", "no topic words", "no text"],
 )
 def test_the_page_must_name_the_day_and_the_place(store, profile, page, day, place, message):
     _, row = _add(store, profile, page, day, place)
