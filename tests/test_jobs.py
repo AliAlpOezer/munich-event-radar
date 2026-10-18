@@ -121,15 +121,19 @@ def _kept(store) -> set[bytes]:
 
 
 def test_pruning_keeps_what_a_fetch_or_the_llm_can_still_read(store):
+    for path in ("a", "b"):
+        store.sources.add(f"https://example.org/{path}", "event_page", "OWN", 72, "test")
     store.pages.record("https://example.org/a", b"a, old")
     store.pages.record("https://example.org/a", b"a, latest")
     waiting = store.pages.record("https://example.org/b", b"b, waiting for the llm")
     store.pages.record("https://example.org/b", b"b, latest")
     store.extraction.enqueue(waiting, "https://example.org/b", priority=0)
+    # A page that is no source, such as one an event intake refused, is fetched no more.
+    store.pages.record("https://example.org/refused", b"refused")
     _age_bodies(store)
     store.pages.save(b"just stored by another job")
 
-    assert store.pages.prune() == 1
+    assert store.pages.prune() == 2
     assert _kept(store) == {
         b"a, latest",
         b"b, waiting for the llm",

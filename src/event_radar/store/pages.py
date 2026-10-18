@@ -49,13 +49,15 @@ class Pages(Repository):
             ).fetchone()
 
     def prune(self, keep_hours: int = 1) -> int:
-        """Drop the bodies nothing can read again: kept are each URL's latest fetch, pages
-        waiting for the LLM, and anything stored in the last `keep_hours`, which a job
-        running alongside may not have recorded yet (ADR 0006 D2)."""
+        """Drop the bodies nothing can read again: kept are each source's latest fetch,
+        pages waiting for the LLM, and anything stored in the last `keep_hours`, which a
+        job running alongside may not have recorded yet (ADR 0006 D2). A page that is no
+        source, such as an intake's probe or a refused event page, is not fetched again."""
         with self.database.tx() as db:
             return db.execute(
                 "WITH latest AS (SELECT DISTINCT ON (url) content_hash FROM snapshot"
-                "                WHERE content_hash IS NOT NULL ORDER BY url, id DESC)"
+                "                JOIN source USING (url)"
+                "                WHERE content_hash IS NOT NULL ORDER BY url, snapshot.id DESC)"
                 " DELETE FROM page_body b"
                 " WHERE b.stored_at < now() - make_interval(hours => %s)"
                 " AND NOT EXISTS (SELECT FROM latest l WHERE l.content_hash = b.content_hash)"
