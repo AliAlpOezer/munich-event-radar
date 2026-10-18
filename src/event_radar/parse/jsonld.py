@@ -1,4 +1,6 @@
 import json
+import re
+from html import unescape
 
 from selectolax.lexbor import LexborHTMLParser
 
@@ -14,6 +16,8 @@ _AVAILABILITY = {
     "Discontinued": "closed",
 }
 _ATTENDANCE = {"Offline": "in_person", "Online": "online", "Mixed": "mixed"}
+_TAG = re.compile(r"</?[a-zA-Z][^>]*>")
+_BREAK = re.compile(r"<br\s*/?>|</(?:p|div|li|h[1-6]|tr)>", re.I)
 
 
 def _items(tree: LexborHTMLParser):
@@ -35,6 +39,19 @@ def _is_event(item: dict) -> bool:
 
 def _tail(uri: object) -> str:
     return str(uri).rsplit("/", 1)[-1].replace("EventAttendanceMode", "")
+
+
+def _description(value: object) -> str | None:
+    """The description as plain text, a line per paragraph or line break: some sites
+    write it as markup, where a line break in the source is only a space."""
+    if not isinstance(value, str):
+        return None
+    if _TAG.search(value):
+        text = LexborHTMLParser(_BREAK.sub("\n", " ".join(value.split()))).text()
+    else:
+        text = unescape(value)
+    lines = (" ".join(line.split()) for line in text.splitlines())
+    return "\n".join(line for line in lines if line)[:2000] or None
 
 
 def _location(location: object) -> dict[str, object]:
@@ -75,6 +92,7 @@ def events(tree: LexborHTMLParser, base: str = "") -> list[ParsedEvent]:
         organiser = item.get("organizer")
         values = {
             "title": item.get("name"),
+            "description": _description(item.get("description")),
             "starts_at": item.get("startDate"),
             "ends_at": item.get("endDate"),
             "event_url": item.get("url"),
