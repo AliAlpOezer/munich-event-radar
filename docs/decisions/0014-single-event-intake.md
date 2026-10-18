@@ -1,6 +1,6 @@
 # ADR 0014: Adding a single event from its page
 
-**Status:** DECIDED, being built on branch `event-intake`
+**Status:** DECIDED, built on branch `event-intake`, not merged
 **Date:** 2026-10-18
 **Inputs:** Alp's request of 2026-10-18: anyone with an event's URL, giving its date and
 place, can add the event without its organisation, "still a fact check: fetch the page and
@@ -140,3 +140,53 @@ Each step its own commit, tests first.
 
 Before merging: dispatch `intake.yml` on the branch so migration 0004 applies before the
 page that calls `suggest_event` deploys (as for stars, ADR 0007).
+
+## How it landed (2026-10-18)
+
+| Commit | Step |
+|---|---|
+| 6195e8f | 1: migration 0004 (`intake.kind`, `starts_on`, `place`, state `removed`, `canonical_url`, `drop_intake_page`), `api.suggest_event`, `api.remove_event`, the `intakes` view's columns |
+| 450c117 | 2: an organiser-less source follows no links |
+| 336ba6c | 2: the `developer` scope group (D9) |
+| ac014ef | found while building: `Pages.prune` keeps the latest body only of pages that are sources |
+| 8fdbb35 | 3: `intake/event.py`, checks 1 to 7, the drain's dispatch by kind, harvesting without the LLM |
+| 4fc5ef7 | 4: the LLM at once without the relevance question, the check after it, one event per organiser-less page |
+| afe61fc | 5: the page, and the privacy notice's lines on added events |
+| 3afffe5 | 6: a page that shows no text without JavaScript is refused with its own message |
+
+Decided while building, within the decisions above:
+
+| # | What | Why |
+|---|---|---|
+| 1 | Check 2 also ends `done` when the board knows the page's event by its aliases (platform key or event URL), and it matches sources by platform key too, so `lu.ma/x` is `luma.com/x` | Invariant 6: no second source or event for an event the board shows already |
+| 2 | One intake per page is a partial unique index on `canonical_url(url)`, the SQL twin of `platforms.canonical`, which `tests/test_access.py` holds to the same answers. A page being checked or added is refused; one rejected or failed can be given again; a removed one only by an admin. A day before today (Munich) is refused | D8's "one intake per canonical URL"; a person whose day or place was wrong can correct it |
+| 3 | Check 6 passes on one word of the given place, with every Munich name in `profile.yaml` as one word and filler words and numbers left out | The day already ties the page to the event, and the judge checks that it is in Munich; all words would refuse "TUM Garching" for a page that says "Campus Garching" |
+| 4 | Check 7: a structured event that is off topic by its parsed fields alone passes on a word of the page text when the page goes to the LLM; the check after the extraction then decides | The LLM states an event's relevance (ADR 0010), and the JSON-LD parser reads no description |
+| 5 | After an extraction, checks 4 to 7 run on the page's own observations, resolved; anything but one event refuses it as a listing. In every run, an organiser-less page the LLM reads as several events keeps none (`llm_several`) | When the budget is spent at intake time the page waits for the daily run, which would otherwise put every event of a listing on the board |
+| 6 | Removal deletes the events that page alone holds and the page's fetches, so its body prunes; an event another source also holds stays, and the next judge rewrites it. It holds the judge's lock: `remove_event` refuses while a judge runs ("try again in a minute"), a refusal in the drain waits | `judge_events` writes back what it read before, so a removal during a judge would undo itself |
+| 7 | `remove_event` works on intakes `done`, `rejected` or `failed`; it is refused while one is worked and does nothing on one removed already | Removing a refused page keeps it from being given again; the drain must not insert a source after its removal |
+| 8 | `Pages.prune` keeps the latest body of sources only, not of every URL | Each refused page of a stranger (up to 5 MB, 10 a day per account) was otherwise kept for good. The first harvest after the merge drops the bodies of URLs that are no source, such as the organisation intake's probes; how many is not measured |
+
+| Check | Result |
+|---|---|
+| New tests, before the code | Each step's tests failed before its code; checks 5 to 7 were mutated one at a time (no place, day, year, LLM-word, known-event or tracked check), and each mutation fails a test |
+| pytest, node tests, ruff | 147 passed, 19 passed, clean |
+| Replay without the LLM, against `main` | identical output, A recall 0.636 |
+| Playwright walk on `tools/devsite.py` (local database `radar_walk`; the drain's states set through the store, since its address guard refuses local pages) | 84 of 84 checks at 1280 and 375 px, light and dark: the button only for logged-in users, the form and its errors, an intake from queued to "On the board" with the link to its event, "Events you added", a refusal with "Change and try again" filling the form, a page added already refused, the admin's two-step removal taking the event off the board. The only console errors are the 409s of that deliberate duplicate |
+
+The real drain on real pages, against `radar_walk` (checked 2026-10-18; 3 calls to an
+OpenRouter free model):
+
+| Page | Day given | Read by | Result |
+|---|---|---|---|
+| https://luma.com/1mgtk6yk (START Munich, "YC Stories - From SF To Munich") | 2026-10-19 | `luma@3` | added, C: AI relevance unknown, no organiser to lend a focus |
+| https://www.tum.de/en/news-and-events/events/details/munich-career-fair-ai-and-data-science | 2026-10-29 | `jsonld@2` without registration fields, then the LLM at once | added, A: career fair, AI core |
+| https://badw.de/en/events/view/2nd-bavarian-conference-on-ai-in-medicine-2026 | 2026-11-30 | `jsonld@2` (BAdW's event pages carry JSON-LD now), then the LLM | added, A: conference, AI core |
+| https://widsmunich.de/ | 2026-12-11 | no structured data; the LLM at once | added, A: conference, AI core |
+| https://aistrategyconference.com/ | 2026-11-20, a test value, not its day (UNVERIFIED) | nothing: the page renders only with JavaScript | rejected; then "does not name 20 November 2026", since 3afffe5 "shows no text without JavaScript" |
+
+Seen, not changed: `parse/jsonld.py` reads no `description`, so a structured event whose
+title names no AI or scope word is off topic on the board even when its page is about AI,
+for every source, not only an added one; and an event page that renders only with
+JavaScript cannot be added (the Cost section names pages that state their date only in an
+image).
