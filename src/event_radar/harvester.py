@@ -61,7 +61,8 @@ class Harvester:
 
     def harvest(self, source: dict) -> None:
         """Fetch one source, or render it when it is a browser source, and ingest it. The
-        event pages it links to become sources of the same organiser."""
+        event pages it links to become sources of the same organiser; a source without one,
+        an added event's page, adds none (ADR 0014 D4)."""
         if source["browser"]:
             if self.renderer is None:
                 return
@@ -85,6 +86,8 @@ class Harvester:
         self.store.sources.mark(source["id"], True, None, len(result.events) + len(result.follow))
         self.counts["fetched"] += 1
         self.counts["observed"] += len(result.events)
+        if source["organiser_id"] is None:
+            return
         for link in result.follow:
             self.store.sources.add(
                 link,

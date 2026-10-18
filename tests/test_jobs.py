@@ -7,6 +7,7 @@ import re
 import threading
 import time
 from datetime import UTC, datetime
+from pathlib import Path
 
 import httpx
 import pytest
@@ -173,8 +174,9 @@ def test_a_malformed_link_on_a_page_does_not_stop_the_harvest(store, profile):
         return httpx.Response(200, content=body, headers={"content-type": "text/html"})
 
     client = httpx.Client(transport=httpx.MockTransport(handler))
+    org = store.organisers.add("Example", "example.org", "test")
     for path in pages:
-        store.sources.add(f"https://example.org{path}", "listing", "OWN", 24, "test")
+        store.sources.add(f"https://example.org{path}", "listing", "OWN", 24, "test", org)
     harvester = Harvester(
         store, profile, Fetcher(store, "test-agent", min_interval_s=0, client=client)
     )
@@ -182,6 +184,33 @@ def test_a_malformed_link_on_a_page_does_not_stop_the_harvest(store, profile):
     assert harvester.counts["fetched"] == 2
     followed = {s["url"] for s in store.sources.all()}
     assert {"https://example.org/events/1", "https://example.org/events/2"} <= followed
+
+
+def test_a_page_without_an_organiser_follows_no_links(store, profile):
+    # ADR 0014 D4: an added event's page puts none of its links on the radar.
+    luma = (Path(__file__).parent / "fixtures" / "luma-event.html").read_bytes()
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/robots.txt":
+            return httpx.Response(404)
+        return httpx.Response(200, content=luma, headers={"content-type": "text/html"})
+
+    client = httpx.Client(transport=httpx.MockTransport(handler))
+    org = store.organisers.add("Example AI", "luma.com/example", "test")
+    added, tracked = "https://luma.com/example-ai-night", "https://luma.com/example-ai-night-3"
+    store.sources.add(added, "event_page", "TICKET", 72, "intake:1")
+    store.sources.add(tracked, "event_page", "TICKET", 72, "test", org)
+    harvester = Harvester(
+        store, profile, Fetcher(store, "test-agent", min_interval_s=0, client=client)
+    )
+    harvester.harvest_due()
+    assert harvester.counts["fetched"] == 2
+    followed = {
+        s["url"]: s["organiser_id"]
+        for s in store.sources.all()
+        if s["added_via"].startswith("link:")
+    }
+    assert followed == {"https://luma.com/example-ai-night-2": org}
 
 
 TALK = "https://example.org/events/talk"
