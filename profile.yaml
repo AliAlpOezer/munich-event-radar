@@ -27,11 +27,12 @@ any_topic_kinds: [career_fair, hackathon]
 # Keywords match the words of an event's title, description and organiser, lowercased and
 # with punctuation read as a space, so "AI," and "(AI)" count and "aims" does not. Write them
 # without punctuation; a leading or trailing space makes a word start or end there (" job"
-# matches "jobs", " ai " only "ai"). The kind is read from the title alone: a description
-# names other formats too ("a week of workshops, hackathons and networking").
+# matches "jobs", " ai " only "ai", " llm" "LLMs" but not "enrollment"). The kind is read
+# from the title alone: a description names other formats too ("a week of workshops,
+# hackathons and networking").
 keywords:
   ai: [" ki ", "künstliche intelligenz", " ai ", " a i ", "artificial intelligence",
-       "machine learning", "maschinelles lernen", "deep learning", "llm", "nlp", "data science",
+       "machine learning", "maschinelles lernen", "deep learning", " llm", "nlp", "data science",
        "agent", "genai", "generative", "neural", "computer vision", "robotics", "mlops"]
   kinds:
     career_fair: [career fair, karrieremesse, job fair, jobmesse, recruiting day, firmenkontaktmesse]

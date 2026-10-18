@@ -300,8 +300,11 @@ def test_keywords_match_whole_words_whatever_the_punctuation():
 
     for text in ("Agents and AI, live", "Tools (AI) for teams", "AI-powered search", "KI-gestützt"):
         assert relevance(text) == "core", text
+    for text in ("LLMs for teams", "LLM-based search"):
+        assert relevance(text) == "core", text
     for text in ("Confidential computing aims to help", "Fresh air in Dubai", "Ski-Ausflug"):
         assert relevance(text) == "unknown", text
+    assert relevance("Questions about enrollment and housing") == "unknown"
     assert verdict(ai_focus=False, title="Meet the Start-up Founders").tier == "C"
 
 
