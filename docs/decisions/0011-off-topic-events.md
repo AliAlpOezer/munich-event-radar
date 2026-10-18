@@ -1,6 +1,7 @@
 # ADR 0011: Events outside the radar's scope leave the board and the database
 
-**Status:** DECIDED, built on branch `off-topic`
+**Status:** DECIDED, built on branch `off-topic`; amended 2026-10-18 (D8, D9, branch
+`scope-first`)
 **Date:** 2026-10-17
 **Inputs:** Alp, 2026-10-17: "let us clean the supabase data base unrelevant events", then,
 asked what counts as relevant: AI, startup and career events (not every tech event), and
@@ -83,3 +84,39 @@ but not about AI.
 
 Seen, not changed: 3 stored online-only events come from no current observation group,
 so no run rewrites them; nothing deletes an event whose sources are gone.
+
+## Amendment (2026-10-18): the scope check comes before the fact drops
+
+**Inputs:** Alp, 2026-10-18, on the stored events that are off topic but kept as past, online
+only or outside Munich: delete them "if they are irrelevant". ADR 0012 D5 put the audience
+check first for the same reason.
+
+The scope check ran after the past, online-only and outside-Munich drops, so an off-topic
+event stayed stored while one of them applied, against invariant 3: 47 events on
+2026-10-18 (past 31, online only 14, outside Munich 2), such as "TUM tanzt!", TUM's info
+sessions on Master's programmes and visas, and "Finissage for the Convivium exhibition".
+They show under "Show past" and the dropped filter, and an event deleted as off topic while
+upcoming came back as past once its day had gone. Checked one by one before deleting them,
+some were not irrelevant: START Munich and CDTM events judged on a bare title, since their
+Luma pages had no description read (ADR 0013).
+
+| # | Decision | Rejected, and why |
+|---|---|---|
+| 8 | The scope check comes before the fact drops, right after the audience check (ADR 0012 D5): an off-topic event is deleted whatever its date, attendance or place | After them, as built on 2026-10-17: the 47 stay, and an upcoming event deleted as off topic returns as past. Deleting the stored rows once: the next harvest rebuilds them |
+| 9 | A fact drop still skips the relevance question and the extraction, off topic or not (`Judge.fact_drop`) | Asking about every past, online-only or outside-Munich page: a triage call per page for an event that is off the board either way, which could only decide whether it shows under "Show past" or the dropped filter |
+
+### How the amendment landed (2026-10-18)
+
+| Check | Result |
+|---|---|
+| New tests, before the code | 2 failed (a past "TUM tanzt!" was dropped as past, not off topic, and stored) |
+| pytest, node tests, ruff | 109 passed, 14 passed, clean |
+| Replay without the LLM, against `audience` | A recall 0.636 on both, with and without ADR 0013; no golden event moves |
+| Dry run over the hosted observations, read-only, ADR 0013 on both sides (`board_dump.py` and `board_compare.py` in the records repository) | 39 stored events deleted, all off topic: past 23, online only 14, outside Munich 2; TUM central events 32, START Munich 4 ("Online Info Event", "Isar & Co. with Andreas Klinger", "The Night Shift" twice), CDTM 1 ("MPD Design Fair"), BAdW 1, AWS User Group 1. No status, star or push ledger row on any. No other verdict moves |
+| The same without ADR 0013 | 47 deleted: also 8 START Munich and CDTM events whose descriptions name startups or AI, such as "START Labs: MedTech Edition - Final" and "EUROPE EMBODIED - The Summit"; they stay as past |
+
+Seen, not changed: the five START Munich and CDTM events above name no AI, startup or
+career word in title or description; three are close calls (Isar & Co. brings Munich's
+student initiatives together with an investor, the MPD Design Fair shows a product course
+sponsored by a VC, The Night Shift is co-working for "builders"). Alp, 2026-10-18: delete
+the three. "builder" is not a scope word: it names website and kit builders too.
