@@ -118,5 +118,5 @@ Luma pages had no description read (ADR 0013).
 Seen, not changed: the five START Munich and CDTM events above name no AI, startup or
 career word in title or description; three are close calls (Isar & Co. brings Munich's
 student initiatives together with an investor, the MPD Design Fair shows a product course
-sponsored by a VC, The Night Shift is co-working for "builders"). "builder" is not a scope
-word: it names website and kit builders too.
+sponsored by a VC, The Night Shift is co-working for "builders"). Alp, 2026-10-18: delete
+the three. "builder" is not a scope word: it names website and kit builders too.
