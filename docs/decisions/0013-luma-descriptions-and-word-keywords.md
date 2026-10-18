@@ -1,6 +1,7 @@
 # ADR 0013: Luma events are judged by their description, and keywords match words
 
-**Status:** DECIDED, built on branch `luma-description`
+**Status:** DECIDED, built on branch `luma-description`; amended 2026-10-18 (D4, D5, branch
+`jsonld-description`)
 **Date:** 2026-10-18
 **Inputs:** the stored events that ADR 0011's scope check finds off topic but keeps behind an
 earlier drop, checked one by one before deleting them, since Alp wants them gone "if they
@@ -68,3 +69,35 @@ in the records repository, with each Luma observation parsed again from its stor
 | pytest, node tests, ruff | 107 passed, 14 passed, clean |
 | Replay without the LLM, against `main` | A recall 0.636 on both; `itcs-munich` A to B (see Cost); `cloud-native-october` stays off topic; no other golden event moves |
 | Dry run over the hosted observations, against `main` (26 Luma observations parsed again; 14 older ones have no stored body left) | 4 verdicts move, A unchanged: YC Stories, the Coffee Run and "Mobilität im Klimawandel" off topic to C, "Why START? Info Session" off topic to B. No status, star or push ledger row on them |
+
+## Amendment (2026-10-18): structured events are judged by their description too
+
+**Inputs:** seen while building ADR 0014: the JSON-LD parser read no `description`, so
+invariant 1's "like an event from any other parser" did not hold for structured data.
+
+An event read from a page's JSON-LD (TUM's event pages, Eventbrite, pretix, BAdW, and any
+page the organisation or event intake adds) was judged on its title and organiser alone
+whenever no LLM read the page: listings, which never go to the LLM, and event pages that
+state registration. Invariant 1 now reads: an event from Luma or from structured data is
+judged on its title, description and organiser.
+
+Measured read-only on the hosted observations, 2026-10-18:
+
+| Finding | Evidence |
+|---|---|
+| Structured descriptions are there and unread | 235 event groups, 99 off topic, 74 of those read by JSON-LD, 65 with a JSON-LD description; by host: TUM 94 of 94 events described, Eventbrite 5 of 5, BAdW 0 of 10, pretix 0 of 1 |
+| They are short teasers without markup | median 91 characters, longest 132; no tags or entities |
+| Reading them exposes a keyword that matches inside a word | "Late Arrivals Info Session" turns AI core: `llm` matches "enrollment" in "questions about enrollment, housing, courses, or visas" (source: https://www.tum.de/en/news-and-events/events/details/late-arrivals-info-session-winter-semester-2026-27, stored page, checked 2026-10-18) |
+| No other AI or scope keyword misfires | Over 334 hosted texts (every group's title, description and organiser, and every stored JSON-LD description), the unpadded keywords match only the words they name: "agents", "agentic", "developers", "careers", and `nlp` inside the organiser MunichNLP |
+
+| # | Decision | Rejected, and why |
+|---|---|---|
+| 4 | The JSON-LD parser reads `description` as plain text, a line per paragraph or line break: markup becomes text when the value holds a tag, where a line break in the source is a space; entities are decoded; at most 2000 characters, as from a calendar feed. `jsonld@2` becomes `jsonld@3`, so each structured page is observed again at its next fetch | The `description` meta tag: cut at 160 characters, and on a listing it describes the listing. The page text, which the LLM path reads already: a site's navigation and footer ("Careers", "Startups") would enter the scope check of every event on it. Reading every value as markup: plain text holding a `<` loses words ("a<b c" reads "a"). No limit: a CMS can put a whole article there |
+| 5 | `llm` becomes `" llm"`: it starts a word, so "LLMs" and "LLM-based" count and "enrollment" does not | Padding every unpadded keyword: no other one misfires, and `nlp` must keep matching "MunichNLP". A stem list per keyword: the profile stays a plain word list (D2) |
+
+| Case | Effect |
+|---|---|
+| The board today | No tier moves; two events off topic before are dropped for what they are (see below) |
+| Events on the board | TUM's and Eventbrite's events show their teaser on the detail page, and the page's search finds them by it |
+| An upcoming TUM "Science Manager" info session held in person | C: its teaser names "career opportunities", and a career word puts an event in scope (ADR 0011) |
+| Not measured | The relevance question (ADR 0010) now sees the descriptions of structured pages, so the LLM's triage of them may move |
