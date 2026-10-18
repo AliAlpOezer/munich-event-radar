@@ -104,3 +104,19 @@ Luma pages had no description read (ADR 0013).
 |---|---|---|
 | 8 | The scope check comes before the fact drops, right after the audience check (ADR 0012 D5): an off-topic event is deleted whatever its date, attendance or place | After them, as built on 2026-10-17: the 47 stay, and an upcoming event deleted as off topic returns as past. Deleting the stored rows once: the next harvest rebuilds them |
 | 9 | A fact drop still skips the relevance question and the extraction, off topic or not (`Judge.fact_drop`) | Asking about every past, online-only or outside-Munich page: a triage call per page for an event that is off the board either way, which could only decide whether it shows under "Show past" or the dropped filter |
+
+### How the amendment landed (2026-10-18)
+
+| Check | Result |
+|---|---|
+| New tests, before the code | 2 failed (a past "TUM tanzt!" was dropped as past, not off topic, and stored) |
+| pytest, node tests, ruff | 109 passed, 14 passed, clean |
+| Replay without the LLM, against `audience` | A recall 0.636 on both, with and without ADR 0013; no golden event moves |
+| Dry run over the hosted observations, read-only, ADR 0013 on both sides (`board_dump.py` and `board_compare.py` in the records repository) | 39 stored events deleted, all off topic: past 23, online only 14, outside Munich 2; TUM central events 32, START Munich 4 ("Online Info Event", "Isar & Co. with Andreas Klinger", "The Night Shift" twice), CDTM 1 ("MPD Design Fair"), BAdW 1, AWS User Group 1. No status, star or push ledger row on any. No other verdict moves |
+| The same without ADR 0013 | 47 deleted: also 8 START Munich and CDTM events whose descriptions name startups or AI, such as "START Labs: MedTech Edition - Final" and "EUROPE EMBODIED - The Summit"; they stay as past |
+
+Seen, not changed: the five START Munich and CDTM events above name no AI, startup or
+career word in title or description; three are close calls (Isar & Co. brings Munich's
+student initiatives together with an investor, the MPD Design Fair shows a product course
+sponsored by a VC, The Night Shift is co-working for "builders"). "builder" is not a scope
+word: it names website and kit builders too.
