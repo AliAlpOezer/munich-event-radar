@@ -32,7 +32,7 @@ export const boardStatus = () => read(client.rpc("board_status"));
 export const me = () => read(client.rpc("me"));
 /* Admins only; anyone else is refused. */
 export const latestRun = async () => (await read(client.from("runs").select("*").order("id", { ascending: false }).limit(1)))[0] ?? null;
-/* A user's own suggestions, or every one for an admin. */
+/* A user's own suggestions and added events, or every one for an admin. */
 export const intakes = () => read(client.from("intakes").select("*").order("id", { ascending: false }).limit(20));
 export const intake = (id) => read(client.from("intakes").select("*").eq("id", id).maybeSingle());
 
@@ -41,6 +41,9 @@ export const setStar = (key, starred) => read(client.rpc("set_star", { event_key
 export const suggest = ({ url, eventsUrl, name }) =>
   read(client.rpc("suggest_organisation", { url, events_url: eventsUrl || null, name: name || null }));
 export const decide = (id, approve) => read(client.rpc("decide_intake", { intake_id: id, approve }));
+export const addEvent = ({ url, day, place }) => read(client.rpc("suggest_event", { url, starts_on: day, place }));
+/* Admins only. */
+export const removeEvent = (id) => read(client.rpc("remove_event", { intake_id: id }));
 
 /* Leaves the page for the provider, which returns to `returnTo` with a code to exchange. */
 export async function logIn(provider, returnTo) {

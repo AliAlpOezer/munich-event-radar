@@ -1,5 +1,6 @@
-/* The side drawer. It shows one thing at a time: an event, an intake, the suggestion form,
-   or the account; `open` says which, and each view checks it before updating the drawer. */
+/* The side drawer. It shows one thing at a time: an event, an intake, the form to suggest
+   an organisation or add an event, or the account; `open` says which, and each view checks
+   it before updating the drawer. */
 
 import { $ } from "./dom.js";
 import { state } from "./state.js";

@@ -560,6 +560,7 @@ def test_the_llms_reading_is_checked_again_and_a_refused_page_leaves(
 ):
     _, row = _add(store, profile, _page(text=text), date(2030, 11, 5), router=_Reader(*events))
     assert (row["state"], row["error"]) == ("rejected", message), row["log"]
+    assert row["log"][-1]["step"] == "harvesting"
     assert store.sources.all() == [] and store.events.all() == []
     with store.tx() as db:
         for table in ("observation", "extraction_job", "snapshot"):

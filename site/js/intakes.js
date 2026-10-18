@@ -1,71 +1,54 @@
-/* Suggesting an organisation and following it onto the radar (ADR 0003). A logged-in user's
-   suggestion waits for an admin before anything is fetched; an admin's starts at once
-   (ADR 0005 D8). */
+/* Suggesting an organisation (ADR 0003) or adding one event from its page (ADR 0014), and
+   following either onto the radar. A logged-in user's suggestion waits for an admin before
+   anything is fetched; an admin's starts at once (ADR 0005 D8). An added event is checked
+   at once, and an admin can take it off the board again. */
 
 import { openLogin } from "./account.js";
 import * as api from "./api.js";
 import * as board from "./board.js";
 import { $, esc, skeleton } from "./dom.js";
 import { fillDrawer, isOpen, setHeading, showDrawer } from "./drawer.js";
-import { TIERS } from "./facts.js";
+import { DROP_LABEL, TIER_MEANING, TIERS } from "./facts.js";
+import { FINAL, STEPS, checked, isEvent, label, pageName, recent, stepMarks, title } from "./intake-facts.js";
 import { state } from "./state.js";
-import { munich } from "./time.js";
+import { munich, today } from "./time.js";
 
 const POLL_MS = 2000;
-const STEPS = [
-  ["checking", "Check that the website works"],
-  ["profiling", "Find out who they are"],
-  ["finding", "Find their event pages"],
-  ["harvesting", "Collect events, tickets and deadlines"],
-  ["done", "On the radar"],
-];
-const LABEL = {
-  queued: "Waiting", checking: "Checking", profiling: "Checking who they are", finding: "Finding event pages",
-  harvesting: "Collecting events", done: "Added", rejected: "Rejected", failed: "Failed",
-};
-const FINAL = new Set(["done", "rejected", "failed"]);
 let timer = null;
 
-const label = (intake) => (intake.state === "review" ? (state.admin ? "Needs your decision" : "Waiting for review") : LABEL[intake.state] || intake.state);
-/* A suggestion in review either waits for an admin before any fetch, or stopped after the
-   check could not confirm the organisation. */
-const checked = (intake) => intake.log.some((entry) => entry.step === "checking");
-
-function title(intake) {
-  if (intake.name) return intake.name;
-  if (intake.profile?.name) return intake.profile.name;
-  try {
-    return new URL(intake.url).hostname.replace(/^www\./, "");
-  } catch {
-    return intake.url;
-  }
-}
-
 function chip(intake) {
-  const cls = { done: "ok", review: "warn", rejected: "bad", failed: "bad" }[intake.state] || "accent";
-  return `<span class="chip ${cls}">${esc(label(intake))}</span>`;
+  const waiting = intake.state === "done" && intake.result?.waiting;
+  const cls = waiting ? "warn" : { done: "ok", review: "warn", rejected: "bad", failed: "bad", removed: "bad" }[intake.state] || "accent";
+  return `<span class="chip ${cls}">${esc(label(intake, state.admin))}</span>`;
 }
 
 export async function loadIntakes() {
   state.intakes = state.user ? await api.intakes() : [];
 }
 
-export function renderIntakes() {
-  $("add-org").textContent = state.admin ? "Add organisation" : "Suggest organisation";
-  const recent = state.intakes
-    .filter((i) => !FINAL.has(i.state) || Date.now() - new Date(i.updated_at).getTime() < 3 * 86400000)
-    .slice(0, 5);
-  const box = $("intakes");
-  box.hidden = !recent.length;
-  if (!recent.length) return;
-  box.innerHTML = `<h2>${state.admin ? "Recently added" : "Your suggestions"}</h2>` + recent.map((i) => {
-    const last = i.log[i.log.length - 1];
+/* The line under an intake's name: where it stands, or the page of an event it found. */
+function meta(intake) {
+  if (isEvent(intake) && intake.result?.title) return pageName(intake.url, true);
+  const last = intake.log[intake.log.length - 1];
+  return last ? last.text : intake.url;
+}
+
+function list(box, intakes, heading) {
+  box.hidden = !intakes.length;
+  box.innerHTML = intakes.length ? `<h2>${heading}</h2>` + intakes.map((i) => {
     return `<button type="button" class="intake-row" data-intake="${i.id}">
       <span class="main"><span class="title">${esc(title(i))}</span>
-        <span class="meta">${esc(last ? last.text : i.url)}</span></span>
+        <span class="meta">${esc(meta(i))}</span></span>
       ${chip(i)}
     </button>`;
-  }).join("");
+  }).join("") : "";
+}
+
+export function renderIntakes() {
+  $("add-org").textContent = state.admin ? "Add organisation" : "Suggest organisation";
+  $("add-event").hidden = !state.user;
+  list($("intakes"), recent(state.intakes, "organisation"), state.admin ? "Recently added" : "Your suggestions");
+  list($("event-intakes"), recent(state.intakes, "event"), state.admin ? "Recently added events" : "Events you added");
 }
 
 function upsert(intake) {
@@ -97,6 +80,31 @@ export function openAddForm(from) {
   form.addEventListener("submit", submit);
 }
 
+/* given: what to fill in again, from an event that was not added. */
+export function openEventForm(from, given = {}) {
+  if (!state.user) return openLogin("add-event", from);
+  clearTimeout(timer);
+  showDrawer({ mode: "event-form", title: "Add an event", hash: "#add-event", from });
+  fillDrawer(`
+    <p class="note">Give the event's own page, and the day and the place it names. The radar reads the page and
+      checks that it names that day and place, and that the event is about AI, startups, careers or coding.
+      Within minutes it is on the board, with what its page says.</p>
+    <form class="form" id="event-form" novalidate>
+      <label class="field"><span>Event page</span>
+        <input type="url" name="url" required placeholder="https://lu.ma/your-event" autocomplete="url" inputmode="url"
+          value="${esc(given.url)}"></label>
+      <label class="field"><span>Day <span class="hint">the day it takes place, or one of its days</span></span>
+        <input type="date" name="day" required min="${today()}" value="${esc(given.day)}"></label>
+      <label class="field"><span>Place <span class="hint">as the page names it: the venue or the city</span></span>
+        <input type="text" name="place" required maxlength="200" placeholder="Werk1, Munich" value="${esc(given.place)}"></label>
+      <p class="form-error" id="event-error" role="alert" hidden></p>
+      <div class="row-actions"><button type="submit" class="btn primary">Check and add</button></div>
+    </form>`);
+  const form = $("event-form");
+  form.elements.url.focus();
+  form.addEventListener("submit", submitEvent);
+}
+
 /* What a person types, as the address the database accepts: a scheme is added if missing. */
 function address(raw) {
   const text = raw.trim();
@@ -104,23 +112,12 @@ function address(raw) {
   return /^[a-z][a-z0-9+.-]*:/i.test(text) ? text : `https://${text}`;
 }
 
-async function submit(e) {
-  e.preventDefault();
-  const form = e.currentTarget;
-  const fields = form.elements;
-  const error = $("intake-error");
+/* Sends a form; `call` returns the new intake's id, which then opens. */
+async function send(form, error, call) {
   const button = form.querySelector("button[type=submit]");
-  error.hidden = true;
-  const url = address(fields.url.value);
-  if (!url) {
-    error.textContent = "Enter the organisation's website.";
-    error.hidden = false;
-    fields.url.focus();
-    return;
-  }
   button.disabled = true;
   try {
-    const id = await api.suggest({ url, eventsUrl: address(fields.events_url.value), name: fields.name.value.trim() });
+    const id = await call();
     upsert(await api.intake(id));
     renderIntakes();
     openIntake(id);
@@ -131,17 +128,37 @@ async function submit(e) {
   }
 }
 
-function stepMarks(intake) {
-  const order = STEPS.map(([key]) => key);
-  if (intake.state === "done") return order.map(() => "done");
-  let at = Math.max(order.indexOf(intake.state), 0);
-  let mark = "active";
-  if (intake.state === "review" || intake.state === "rejected") [at, mark] = [checked(intake) ? 1 : 0, "stopped"];
-  if (intake.state === "failed") {
-    const reached = intake.log.map((entry) => order.indexOf(entry.step)).filter((i) => i >= 0);
-    [at, mark] = [reached.length ? Math.max(...reached) : 0, "failed"];
-  }
-  return order.map((_, i) => (i < at ? "done" : i === at ? mark : ""));
+function refuse(error, field, text) {
+  error.textContent = text;
+  error.hidden = false;
+  field.focus();
+}
+
+async function submit(e) {
+  e.preventDefault();
+  const form = e.currentTarget;
+  const fields = form.elements;
+  const error = $("intake-error");
+  error.hidden = true;
+  const url = address(fields.url.value);
+  if (!url) return refuse(error, fields.url, "Enter the organisation's website.");
+  await send(form, error, () =>
+    api.suggest({ url, eventsUrl: address(fields.events_url.value), name: fields.name.value.trim() }));
+}
+
+async function submitEvent(e) {
+  e.preventDefault();
+  const form = e.currentTarget;
+  const fields = form.elements;
+  const error = $("event-error");
+  error.hidden = true;
+  const url = address(fields.url.value);
+  const day = fields.day.value;
+  const place = fields.place.value.trim();
+  if (!url) return refuse(error, fields.url, "Enter the event's page.");
+  if (!day) return refuse(error, fields.day, "Enter the day the event takes place.");
+  if (!place) return refuse(error, fields.place, "Enter the place the page names.");
+  await send(form, error, () => api.addEvent({ url, day, place }));
 }
 
 function profileCard(profile) {
@@ -180,20 +197,60 @@ function decision(intake) {
     <p class="form-error" id="decide-error" role="alert" hidden></p></section>`;
 }
 
-function render(intake) {
-  setHeading(title(intake));
-  const marks = stepMarks(intake);
-  const symbol = { done: "✓", stopped: "?", failed: "!" };
-  const steps = STEPS.map(([, text], i) =>
-    `<li class="${marks[i]}"><span class="mark" aria-hidden="true">${symbol[marks[i]] || ""}</span><span>${esc(text)}</span></li>`).join("");
-  const r = intake.result;
-  const result = r ? `<section><h3>Result</h3>
+function organisationResult(r) {
+  return `<section><h3>Result</h3>
       <div class="row-actions"><span class="chip ${r.status === "active" ? "ok" : "warn"}">${esc(r.status)}</span>
         ${TIERS.map((t) => `<span class="tier-count"><span class="tier-badge ${t}">${t}</span>${r[t] ?? 0}</span>`).join("")}</div>
       <div class="row-actions">
         <button type="button" class="btn primary" data-open-org="${r.organiser_id}">Show the organisation</button>
         ${r.upcoming ? `<button type="button" class="btn" data-show-org="${r.organiser_id}">Show its events</button>` : ""}
-      </div></section>` : "";
+      </div></section>`;
+}
+
+/* What became of an added event: on the board, waiting for the LLM, or not added and why. */
+function eventResult(intake) {
+  const r = intake.result;
+  if (intake.state === "rejected" || intake.state === "failed") {
+    const again = intake.mine ? `<div class="row-actions"><button type="button" class="btn" data-again>Change and try again</button></div>` : "";
+    return `<section><h3>Not added</h3><p class="note warn">${esc(intake.error || "The check stopped.")}</p>${again}</section>`;
+  }
+  if (intake.state === "removed") {
+    return `<section><h3>Removed</h3><p class="note">An admin took this event off the board. Its page is not added again.</p></section>`;
+  }
+  if (intake.state !== "done" || !r) return "";
+  if (r.waiting) {
+    return `<section><h3>Waiting for the LLM</h3><p class="note">The page has no structured data, so the LLM reads it in the next
+      daily run. The event shows on the board once it passes the same checks.</p></section>`;
+  }
+  const heading = r.already ? "Already on the radar" : "On the board";
+  if (!r.event_key) return `<section><h3>${heading}</h3><p class="note">The radar reads this page already; it shows no event now.</p></section>`;
+  const shown = state.events.some((ev) => ev.key === r.event_key);
+  const where = r.tier
+    ? `<p class="tier-line"><span class="tier-badge ${esc(r.tier)}">${esc(r.tier)}</span><span>${esc(TIER_MEANING[r.tier])}</span></p>`
+    : `<p class="tier-line"><span class="chip warn">${esc(DROP_LABEL[r.drop_reason] || "Not shown")}</span></p>`;
+  return `<section><h3>${heading}</h3>${where}
+    ${shown ? `<div class="row-actions"><a class="btn primary" href="#event-${esc(r.event_key)}">Show the event</a></div>` : ""}</section>`;
+}
+
+/* An admin's removal of an added event, confirmed in a second step. */
+function removal(intake) {
+  if (!state.admin || !["done", "rejected", "failed"].includes(intake.state) || intake.result?.already) return "";
+  return `<section><h3>Remove from the board</h3>
+    <p class="note">Takes the event and its page off the radar for good, with the stars and statuses people gave it.
+      After that, only an admin can add the page again.</p>
+    <div class="row-actions" id="remove-actions"><button type="button" class="btn danger" data-remove>Remove</button></div>
+    <p class="form-error" id="remove-error" role="alert" hidden></p></section>`;
+}
+
+function render(intake) {
+  setHeading(title(intake));
+  const marks = stepMarks(intake);
+  const symbol = { done: "✓", stopped: "?", failed: "!" };
+  const steps = STEPS[isEvent(intake) ? "event" : "organisation"].map(([, text], i) =>
+    `<li class="${marks[i]}"><span class="mark" aria-hidden="true">${symbol[marks[i]] || ""}</span><span>${esc(text)}</span></li>`).join("");
+  const outcome = isEvent(intake)
+    ? eventResult(intake) + removal(intake)
+    : decision(intake) + (intake.result ? organisationResult(intake.result) : "") + profileCard(intake.profile);
   const log = intake.log.length
     ? `<ol class="log">${intake.log.map((entry) => `<li><time>${esc(munich(entry.at)?.time || "")}</time>
         <span class="${esc(entry.level)}">${esc(entry.text)}</span></li>`).join("")}</ol>`
@@ -201,18 +258,22 @@ function render(intake) {
   fillDrawer(`
     <p class="note"><a href="${esc(intake.url)}" target="_blank" rel="noopener">${esc(intake.url)}</a></p>
     <section><ol class="steps">${steps}</ol></section>
-    ${decision(intake)}${result}${profileCard(intake.profile)}
+    ${outcome}
     <section><h3>What happened</h3>${log}</section>`);
   for (const button of document.querySelectorAll("[data-decide]")) {
     button.addEventListener("click", () => decide(intake, button.dataset.decide === "approve"));
   }
+  document.querySelector("[data-remove]")?.addEventListener("click", () => confirmRemoval(intake));
+  document.querySelector("[data-again]")?.addEventListener("click", (e) =>
+    openEventForm(e.currentTarget, { url: intake.url, day: intake.starts_on, place: intake.place }));
 }
 
 export async function openIntake(id, from) {
   if (!state.user) return openLogin("intake", from);
   clearTimeout(timer);
   const known = state.intakes.find((i) => i.id === id);
-  showDrawer({ mode: "intake", id, title: known ? title(known) : "Adding an organisation", hash: `#intake-${id}`, from });
+  const adding = known && isEvent(known) ? "Adding an event" : "Adding an organisation";
+  showDrawer({ mode: "intake", id, title: known ? title(known) : adding, hash: `#intake-${id}`, from });
   if (known) render(known);
   else fillDrawer(skeleton(4));
   await refresh(id);
@@ -230,14 +291,17 @@ async function refresh(id) {
   }
   if (!isOpen("intake", id)) return;
   if (!intake) {
-    fillDrawer(`<p class="note warn">There is no suggestion with this number that you can see.</p>`);
+    fillDrawer(`<p class="note warn">There is nothing with this number that you can see.</p>`);
     return;
   }
   const before = state.intakes.find((i) => i.id === id)?.state;
   upsert(intake);
   render(intake);
   renderIntakes();
-  if (intake.state === "done" && before !== "done") board.load().catch(board.showBanner);
+  /* Its events are on the board now, or gone from it: reload, then show the link to them. */
+  if ((intake.state === "done" || intake.state === "removed") && before !== intake.state) {
+    board.load().then(() => isOpen("intake", id) && render(intake)).catch(board.showBanner);
+  }
   if (!FINAL.has(intake.state) && intake.state !== "review") {
     clearTimeout(timer);
     timer = setTimeout(() => refresh(id), POLL_MS);
@@ -254,4 +318,25 @@ async function decide(intake, approve) {
     note.textContent = error.message;
     note.hidden = false;
   }
+}
+
+function confirmRemoval(intake) {
+  const actions = $("remove-actions");
+  actions.innerHTML = `<button type="button" class="btn danger" id="remove-confirm">Remove for good</button>
+    <button type="button" class="btn" id="remove-cancel">Keep it</button>`;
+  $("remove-cancel").addEventListener("click", () => render(intake));
+  const confirm = $("remove-confirm");
+  confirm.addEventListener("click", async () => {
+    confirm.disabled = true;
+    try {
+      await api.removeEvent(intake.id);
+      await refresh(intake.id);
+    } catch (error) {
+      const note = $("remove-error");
+      note.textContent = error.message;
+      note.hidden = false;
+      confirm.disabled = false;
+    }
+  });
+  confirm.focus();
 }

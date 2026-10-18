@@ -229,7 +229,7 @@ class EventIntake:
                 self._recheck(row, html.text(body, url))
             except Refused as refusal:
                 self.store.intakes.drop_page(intake_id)
-                self._refuse(intake_id, refusal)
+                self._refuse(intake_id, refusal, "harvesting")
                 return
         harvester.judge_events()
         event = self.store.events.of_source(url)
@@ -284,13 +284,11 @@ class EventIntake:
         self.store.intakes.update(intake_id, state=IntakeState.DONE, result=result)
         self.log(intake_id, "done", text.strip(), "ok")
 
-    def _refuse(self, intake_id: int, refusal: Refused) -> None:
+    def _refuse(self, intake_id: int, refusal: Refused, step: str = "checking") -> None:
+        """End the intake with the refusal, logged under the step that refused it."""
         failed = refusal.state is IntakeState.FAILED
         self.log(
-            intake_id,
-            "error" if failed else "checking",
-            str(refusal),
-            "error" if failed else "warn",
+            intake_id, "error" if failed else step, str(refusal), "error" if failed else "warn"
         )
         self.store.intakes.update(intake_id, state=refusal.state, error=str(refusal))
 
