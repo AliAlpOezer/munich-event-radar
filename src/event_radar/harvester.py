@@ -102,14 +102,25 @@ class Harvester:
                 source["organiser_id"],
             )
 
-    def extract(self, urls: list[str] | None = None, until: datetime | None = None) -> None:
+    def extract(
+        self,
+        urls: list[str] | None = None,
+        until: datetime | None = None,
+        *,
+        sort: bool = True,
+    ) -> None:
         """Work the LLM queue, or only the pages of `urls`, until the budget runs out or
-        `until` passes; jobs for a page's older versions are dropped first."""
+        `until` passes; jobs for a page's older versions are dropped first. Without `sort`
+        every page is read, with no relevance question first (an added event, ADR 0014 D6).
+        A page without an organiser holds one event: read as several, it keeps none
+        (ADR 0014 D4)."""
         if self.extractor is None:
             return
         self.counts["llm_superseded"] += self.store.extraction.drop_superseded()
         try:
-            jobs = self._worth_extracting(self.store.extraction.pending(LLM_BATCH, urls))
+            jobs = self.store.extraction.pending(LLM_BATCH, urls)
+            if sort:
+                jobs = self._worth_extracting(jobs)
         except (BudgetExhausted, DailyCapReached):
             self.counts["llm_deferred"] += 1
             return
@@ -136,6 +147,9 @@ class Harvester:
                 self.store.extraction.finish(digest, url, state)
                 self.counts["llm_failed"] += 1
                 continue
+            if len(events) > 1 and source and source["organiser_id"] is None:
+                events = []
+                self.counts["llm_several"] += 1
             self.store.observations.add(digest, url, self.profile.source_class(url), method, events)
             self.store.extraction.finish(digest, url, JobState.DONE)
             self.counts["llm_done"] += 1

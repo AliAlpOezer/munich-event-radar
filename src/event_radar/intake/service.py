@@ -78,7 +78,7 @@ class IntakeService:
         renderer = None
         try:
             if row["kind"] == IntakeKind.EVENT:
-                EventIntake(self.store, self.profile, fetcher, self.guard).process(row)
+                EventIntake(self.store, self.profile, fetcher, self.guard, self.router).process(row)
                 return
             renderer = self._renderer(fetcher.politeness)
             if row["organiser_id"]:

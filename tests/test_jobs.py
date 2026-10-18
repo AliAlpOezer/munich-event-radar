@@ -222,7 +222,7 @@ TALK = "https://example.org/events/talk"
 
 class _Answers:
     """An LLM stand-in. It sorts events as related unless their line names one of
-    `unrelated`, names a page's talk as its event, and keeps what it was asked."""
+    `unrelated`, names a page's talks as its events, and keeps what it was asked."""
 
     def __init__(self, unrelated: tuple[str, ...] = ()):
         self.unrelated = unrelated
@@ -240,8 +240,8 @@ class _Answers:
             ]
             return "test-model", {"verdicts": verdicts}
         self.asked.append(question)
-        title = re.search(r"Talk on [\w ]+", question).group(0).strip()
-        return "test-model", {"events": [{"title": {"value": title, "quote": title}}]}
+        titles = [t.strip() for t in re.findall(r"Talk on [\w ]+", question)]
+        return "test-model", {"events": [{"title": {"value": t, "quote": t}} for t in titles]}
 
 
 def _page(title: str, nonce: str) -> bytes:
@@ -425,3 +425,20 @@ def test_a_childrens_event_is_not_asked_about_and_not_stored(store, profile):
     assert _states(store)["/events/kids"] == "skipped"
     assert [e["fields"]["title"]["value"] for e in store.events.all()] == ["Talk on AI agents"]
     assert harvester.counts["tier_audience"] == 1
+
+
+def test_a_page_without_an_organiser_read_as_several_events_keeps_none(store, profile):
+    # ADR 0014 D4: an added event's page holds one event, also when the daily run reads it.
+    two = b"<h1>Talk on 5 November</h1><h1>Talk on 12 November</h1>"
+    pages = {"/events/added": lambda: two, "/events/tracked": lambda: two}
+    harvester, _ = _site(store, profile, pages)
+    org = store.organisers.add("Example AI", "example.org", "test", ai_focus=True)
+    with store.tx() as db:
+        db.execute("UPDATE source SET organiser_id = %s WHERE url LIKE '%%/tracked'", (org,))
+    harvester.harvest_due()
+    harvester.extract()
+    seen = sorted(
+        (o.url.rsplit("/", 1)[1], o.fields["title"].value) for o in store.observations.all()
+    )
+    assert seen == [("tracked", "Talk on 12 November"), ("tracked", "Talk on 5 November")]
+    assert set(_states(store).values()) == {"done"} and harvester.counts["llm_several"] == 1

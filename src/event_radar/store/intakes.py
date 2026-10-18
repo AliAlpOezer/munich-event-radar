@@ -56,6 +56,14 @@ class Intakes(Repository):
                 (Jsonb([entry]), entry["at"], intake_id),
             )
 
+    def drop_page(self, intake_id: int) -> int:
+        """Take an event intake's page off the radar as `api.remove_event` does (ADR 0014
+        D7), waiting for a judge that is running; returns how many events went."""
+        with self.database.tx() as db:
+            return db.execute(
+                "SELECT drop_intake_page(%s, true) AS deleted", (intake_id,)
+            ).fetchone()["deleted"]
+
     def next_queued(self) -> dict | None:
         with self.database.tx() as db:
             return db.execute(

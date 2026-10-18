@@ -7,6 +7,7 @@ import httpx
 import pytest
 from selectolax.lexbor import LexborHTMLParser
 
+from event_radar.extract.router import BudgetExhausted
 from event_radar.fetch import Fetched
 from event_radar.intake import discovery, urls
 from event_radar.intake.service import IntakeService
@@ -266,9 +267,9 @@ def _day() -> date:
     return date.fromisoformat(_start()[:10])
 
 
-def _add(store, profile, page: str, day: date | None = None, place: str = "Munich", url=PAGE):
+def _add(store, profile, page: str, day: date | None = None, place="Munich", url=PAGE, router=None):
     """Work an event intake for `url`, which serves `page`; returns the service and row."""
-    service = _service(store, profile, {"/events/ai-night": page})
+    service = _service(store, profile, {"/events/ai-night": page}, router=router)
     intake_id = store.intakes.create_event(url, day or _day(), place)
     service.process(intake_id)
     return service, store.intakes.get(intake_id)
@@ -466,3 +467,108 @@ def test_a_page_that_cannot_be_read_fails(store, profile):
     service.process(intake_id)
     row = store.intakes.get(intake_id)
     assert row["state"] == "failed" and row["error"].startswith("This address cannot be fetched")
+
+
+class _Reader:
+    """An LLM stand-in that reads every page as `events`, each value quoted as the page
+    writes it, and keeps the names of the questions it was asked."""
+
+    def __init__(self, *events: dict, fail: Exception | None = None):
+        self.events = events
+        self.fail = fail
+        self.asked: list[str] = []
+
+    def complete(self, messages, schema, name="events"):
+        self.asked.append(name)
+        if self.fail:
+            raise self.fail
+        answer = [
+            {
+                k: {"value": v[0], "quote": v[1]}
+                if isinstance(v, tuple)
+                else {"value": v, "quote": v}
+                for k, v in event.items()
+            }
+            for event in self.events
+        ]
+        return "test-model", {"events": answer}
+
+
+NIGHT_TEXT = (
+    "Applied AI Night. 5 November 2030, 18:00, Example Hall, München."
+    " A talk on machine learning in industry."
+)
+NIGHT = {
+    "title": "Applied AI Night",
+    "starts_at": ("2030-11-05T18:00:00+01:00", "5 November 2030, 18:00"),
+    "city": "München",
+    "ai_relevance": ("core", "A talk on machine learning in industry."),
+}
+
+
+def test_a_page_the_llm_must_read_is_read_at_once_without_the_relevance_question(store, profile):
+    reader = _Reader(NIGHT)
+    _, row = _add(store, profile, _page(text=NIGHT_TEXT), date(2030, 11, 5), router=reader)
+    assert row["state"] == "done", row["log"]
+    assert reader.asked == ["events"]
+    [event] = store.events.all()
+    assert (row["result"]["event_key"], row["result"]["tier"]) == (event["key"], "B")
+    assert store.extraction.pending(10) == []
+
+
+@pytest.mark.parametrize(
+    ("text", "events", "message"),
+    [
+        (
+            NIGHT_TEXT + " Robotics Breakfast: 12 November 2030, 08:00.",
+            (
+                NIGHT,
+                {
+                    "title": "Robotics Breakfast",
+                    "starts_at": ("2030-11-12T08:00:00+01:00", "12 November 2030, 08:00"),
+                },
+            ),
+            "The LLM found no single event on the page; give the event's own page.",
+        ),
+        (
+            "Applied AI Night on machine learning. Registration opens 5 November 2030;"
+            " the talk is on 12 November 2030, 18:00, in München.",
+            (
+                {
+                    "title": "Applied AI Night",
+                    "starts_at": ("2030-11-12T18:00:00+01:00", "12 November 2030, 18:00"),
+                },
+            ),
+            "The page says the event is on 2030-11-12, not 2030-11-05.",
+        ),
+        (
+            "Salsa night for founders. 5 November 2030, 20:00, Example Hall, München.",
+            (
+                {
+                    "title": "Salsa night",
+                    "starts_at": ("2030-11-05T20:00:00+01:00", "5 November 2030, 20:00"),
+                    "ai_relevance": ("none", "Salsa night"),
+                },
+            ),
+            "The page is not about AI, startups, careers or coding.",
+        ),
+    ],
+    ids=["several events", "other day", "off topic"],
+)
+def test_the_llms_reading_is_checked_again_and_a_refused_page_leaves(
+    store, profile, text, events, message
+):
+    _, row = _add(store, profile, _page(text=text), date(2030, 11, 5), router=_Reader(*events))
+    assert (row["state"], row["error"]) == ("rejected", message), row["log"]
+    assert store.sources.all() == [] and store.events.all() == []
+    with store.tx() as db:
+        for table in ("observation", "extraction_job", "snapshot"):
+            assert db.execute(f"SELECT FROM {table}").rowcount == 0, table
+
+
+def test_with_the_llm_budget_spent_the_page_waits_for_the_daily_run(store, profile):
+    reader = _Reader(NIGHT, fail=BudgetExhausted())
+    _, row = _add(store, profile, _page(text=NIGHT_TEXT), date(2030, 11, 5), router=reader)
+    assert (row["state"], row["result"]) == ("done", {"waiting": True}), row["log"]
+    assert row["log"][-1]["text"].startswith("Today's LLM calls are used up")
+    assert [j["url"] for j in store.extraction.pending(10)] == [PAGE]

@@ -9,6 +9,8 @@ from datetime import UTC, date, datetime
 from urllib.parse import urlsplit
 
 from .. import html
+from ..extract import Extractor
+from ..extract.router import Router
 from ..extract.verify import names_date
 from ..fetch import Fetched, Fetcher
 from ..harvester import EVENT_PAGE_HOURS, Harvester
@@ -26,7 +28,7 @@ from ..model import (
 from ..parse import parse
 from ..platforms import canonical, platform_key
 from ..profile import Profile
-from ..resolve import aliases, local_date
+from ..resolve import aliases, local_date, resolve
 from ..store import Store
 from .urls import UnsafeAddress
 
@@ -114,7 +116,8 @@ def _stored(event: ParsedEvent | None) -> dict:
 class EventIntake:
     """Works one event intake: checking, then harvesting, then done; a refusal ends it
     `rejected`, or `failed` when the page could not be read. Every request goes through the
-    fetcher's guarded client and `guard` (ADR 0003 D4)."""
+    fetcher's guarded client and `guard` (ADR 0003 D4). Without a router, a page that needs
+    the LLM waits for the daily run."""
 
     def __init__(
         self,
@@ -122,11 +125,13 @@ class EventIntake:
         profile: Profile,
         fetcher: Fetcher,
         guard: Callable[[str | None], None],
+        router: Router | None = None,
     ):
         self.store = store
         self.profile = profile
         self.fetcher = fetcher
         self.guard = guard
+        self.router = router
         self.judge = Judge(profile)
         self.log = store.intakes.log
 
@@ -152,7 +157,7 @@ class EventIntake:
         except Refused as refusal:
             self._refuse(intake_id, refusal)
             return
-        self._harvest(intake_id, url, fetched)
+        self._harvest(row, fetched, body)
 
     def _guard(self, url: str) -> None:
         """Check 1: every address the host resolves to is public."""
@@ -202,9 +207,11 @@ class EventIntake:
             "ok",
         )
 
-    def _harvest(self, intake_id: int, url: str, fetched: Fetched) -> None:
-        """Track the page as a source of its own, ingest the fetch the check read, and
-        judge the board."""
+    def _harvest(self, row: dict, fetched: Fetched, body: bytes) -> None:
+        """Track the page as a source of its own and ingest the fetch the check read; when
+        parsing fell short, have the LLM read it at once and check its reading again
+        (ADR 0014 D6). Then judge the board."""
+        intake_id, url = row["id"], row["url"]
         self.store.intakes.update(intake_id, state=IntakeState.HARVESTING)
         self.store.sources.add(
             url,
@@ -213,21 +220,48 @@ class EventIntake:
             EVENT_PAGE_HOURS,
             f"intake:{intake_id}",
         )
-        harvester = Harvester(self.store, self.profile, self.fetcher)
+        extractor = Extractor(self.router, self.store) if self.router else None
+        harvester = Harvester(self.store, self.profile, self.fetcher, extractor=extractor)
         harvester.take(self.store.sources.get(url), fetched)
+        harvester.extract([url], sort=False)
+        if harvester.counts["llm_done"]:
+            try:
+                self._recheck(row, html.text(body, url))
+            except Refused as refusal:
+                self.store.intakes.drop_page(intake_id)
+                self._refuse(intake_id, refusal)
+                return
         harvester.judge_events()
         event = self.store.events.of_source(url)
-        if event is None:
-            self.store.intakes.update(intake_id, state=IntakeState.DONE, result={"waiting": True})
-            self.log(
-                intake_id,
-                "done",
-                "The page has no structured data, so the LLM reads it in the next daily run;"
-                " the event shows on the board once it passes the same checks.",
-                "ok",
-            )
+        if event is not None:
+            self._done(intake_id, event, already=False)
             return
-        self._done(intake_id, event, already=False)
+        if harvester.counts["llm_deferred"]:
+            why = "Today's LLM calls are used up"
+        elif harvester.counts["llm_failed"]:
+            why = "The LLM did not answer"
+        elif extractor is None:
+            why = "No LLM is configured here"
+        else:
+            why = "The event is not on the board now"
+        self.store.intakes.update(intake_id, state=IntakeState.DONE, result={"waiting": True})
+        self.log(
+            intake_id,
+            "done",
+            f"{why}, so the LLM reads the page in the next daily run; the event shows on the"
+            " board once it passes the same checks.",
+            "ok",
+        )
+
+    def _recheck(self, row: dict, text: str) -> None:
+        """Checks 4 to 7 again on what the page now says, the LLM's reading included."""
+        groups = resolve(self.store.observations.of_url(row["url"]))
+        if len(groups) != 1:
+            raise Refused("The LLM found no single event on the page; give the event's own page.")
+        fields = groups[0].fields
+        check_day(row["starts_on"], fields, text)
+        check_place(row["place"], fields, text, self.profile.cities)
+        check_relevance(self.judge, fields, text, False, datetime.now(UTC))
 
     def _done(self, intake_id: int, event: dict | None, *, already: bool) -> None:
         if event is None:
