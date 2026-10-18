@@ -345,6 +345,14 @@ def test_events_outside_ai_startups_and_careers_are_off_topic():
     assert verdict(ai_focus=False, title="Founders and investors night").tier == "C"
 
 
+def test_coding_and_developer_events_are_in_scope():
+    # ADR 0014 D9: Alp names coding and developer events relevant; "encoding" is no coding.
+    assert verdict(ai_focus=False, title="Coding Dojo: Rust for beginners").tier == "C"
+    assert verdict(ai_focus=False, title="Munich Developer Meetup").tier == "C"
+    assert verdict(ai_focus=False, title="Software Engineering Night").tier == "C"
+    assert verdict(ai_focus=False, title="Video encoding night").drop_reason == "off_topic"
+
+
 def test_events_for_children_pupils_or_families_leave_the_board_whatever_their_topic():
     kids = verdict(title="Children's University: How Is AI Changing the World of Images?")
     assert kids.tier is None and kids.drop_reason == "audience"

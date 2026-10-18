@@ -7,7 +7,7 @@ import * as board from "./board.js";
 import { $, skeleton } from "./dom.js";
 import { closeDrawer, isOpen } from "./drawer.js";
 import { openEvent, refreshEvent } from "./event-detail.js";
-import { loadIntakes, openAddForm, openIntake, renderIntakes } from "./intakes.js";
+import { loadIntakes, openAddForm, openEventForm, openIntake, renderIntakes } from "./intakes.js";
 import { renderOrganisations, showOrganisation, wireOrganisations } from "./organisations.js";
 import { toggleStar } from "./star.js";
 import { changed, onChange, state } from "./state.js";
@@ -41,6 +41,10 @@ function showView() {
   }
   if (hash === "#add-organisation") {
     if (!isOpen("form")) openAddForm();
+    return;
+  }
+  if (hash === "#add-event") {
+    if (!isOpen("event-form")) openEventForm();
     return;
   }
   if (hash === "#account") {
@@ -77,7 +81,7 @@ async function sessionChanged(user) {
   } catch (error) {
     board.showBanner(error);
   }
-  if (!user && (isOpen("account") || isOpen("intake") || isOpen("form"))) closeDrawer();
+  if (!user && ["account", "intake", "form", "event-form"].some((mode) => isOpen(mode))) closeDrawer();
   const back = user ? takeReturn() : null;
   if (back && back !== location.hash) location.hash = back;
   else if (back || first) showView();
@@ -104,6 +108,7 @@ function wire() {
     if (login) return openLogin(login.dataset.login, login);
   });
   $("add-org").addEventListener("click", (e) => openAddForm(e.currentTarget));
+  $("add-event").addEventListener("click", (e) => openEventForm(e.currentTarget));
   $("account-button").addEventListener("click", (e) => openAccount(e.currentTarget));
   /* A cover that fails to load leaves the colour tile behind it, or no cover in the drawer. */
   document.addEventListener("error", (e) => {

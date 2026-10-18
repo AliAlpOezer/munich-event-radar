@@ -65,6 +65,22 @@ class Events(Repository):
                 )
         return counts
 
+    def known(self, aliases: set[str]) -> dict | None:
+        """The oldest stored event one of `aliases` names."""
+        with self.database.tx() as db:
+            return db.execute(
+                "SELECT e.* FROM event_alias a JOIN event e ON e.key = a.event_key"
+                " WHERE a.alias = ANY(%s) ORDER BY e.first_seen LIMIT 1",
+                (list(aliases),),
+            ).fetchone()
+
+    def of_source(self, url: str) -> dict | None:
+        """The oldest stored event the source `url` describes."""
+        with self.database.tx() as db:
+            return db.execute(
+                "SELECT * FROM event WHERE sources ? %s ORDER BY first_seen LIMIT 1", (url,)
+            ).fetchone()
+
     def all(self) -> list[dict]:
         """Every event, with the owner's status as `user_status`."""
         with self.database.tx() as db:

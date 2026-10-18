@@ -48,17 +48,25 @@ class Observations(Repository):
     def all(self) -> list[Observation]:
         with self.database.tx() as db:
             rows = db.execute("SELECT * FROM observation ORDER BY id").fetchall()
-        return [
-            Observation(
-                id=r["id"],
-                snapshot_hash=r["snapshot_hash"],
-                url=r["url"],
-                source_class=SourceClass(r["source_class"]),
-                method=r["method"],
-                platform_keys=r["platform_keys"],
-                fields={k: Evidence(v["value"], v.get("quote")) for k, v in r["fields"].items()},
-                observed_at=r["observed_at"].isoformat(),
-                links=r["links"],
-            )
-            for r in rows
-        ]
+        return [_observation(r) for r in rows]
+
+    def of_url(self, url: str) -> list[Observation]:
+        with self.database.tx() as db:
+            rows = db.execute(
+                "SELECT * FROM observation WHERE url = %s ORDER BY id", (url,)
+            ).fetchall()
+        return [_observation(r) for r in rows]
+
+
+def _observation(row: dict) -> Observation:
+    return Observation(
+        id=row["id"],
+        snapshot_hash=row["snapshot_hash"],
+        url=row["url"],
+        source_class=SourceClass(row["source_class"]),
+        method=row["method"],
+        platform_keys=row["platform_keys"],
+        fields={k: Evidence(v["value"], v.get("quote")) for k, v in row["fields"].items()},
+        observed_at=row["observed_at"].isoformat(),
+        links=row["links"],
+    )

@@ -1,5 +1,6 @@
 """The intake state machine (ADR 0003): queued, checking, profiling, finding, harvesting,
-then done; review waits for a person, rejected and failed end it."""
+then done; review waits for a person, rejected and failed end it. An event intake skips
+profiling, review and finding (ADR 0014, `event.py`)."""
 
 from collections import Counter
 from collections.abc import Callable
@@ -13,13 +14,14 @@ from ..extract import Extractor
 from ..extract.router import AllModelsFailed, BudgetExhausted, DailyCapReached, Router
 from ..fetch import Fetcher, Politeness
 from ..harvester import Harvester, cadence_hours
-from ..model import IntakeState, OrganiserStatus
+from ..model import IntakeKind, IntakeState, OrganiserStatus
 from ..platforms import canonical
 from ..profile import Profile
 from ..render import Renderer
 from ..store import Store
 from . import discovery, profiling
 from .discovery import Candidate
+from .event import EventIntake
 from .urls import UnsafeAddress, check_host, guarded_client, organiser_domain
 
 MAX_CANDIDATES = 6
@@ -72,9 +74,13 @@ class IntakeService:
         user_agent = config.user_agent()
         client = self.open_client(user_agent)
         fetcher = Fetcher(self.store, user_agent, self.min_interval_s, client=client)
-        renderer = self._renderer(fetcher.politeness)
+        row = self.store.intakes.get(intake_id)
+        renderer = None
         try:
-            row = self.store.intakes.get(intake_id)
+            if row["kind"] == IntakeKind.EVENT:
+                EventIntake(self.store, self.profile, fetcher, self.guard, self.router).process(row)
+                return
+            renderer = self._renderer(fetcher.politeness)
             if row["organiser_id"]:
                 self._harvest(intake_id, row["organiser_id"], fetcher, renderer)
                 return

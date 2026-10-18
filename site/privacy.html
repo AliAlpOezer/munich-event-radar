@@ -78,7 +78,7 @@
 
       <h2>If you log in</h2>
       <p>Logging in is optional. It lets you star events, keep your own applied, registered or skipped status on
-        them, and suggest organisations for the radar. There are two ways to log in, Google and GitHub; there are no
+        them, add events, and suggest organisations for the radar. There are two ways to log in, Google and GitHub; there are no
         passwords and no email login.</p>
 
       <h3>At Google or GitHub</h3>
@@ -104,7 +104,8 @@
             <tr><td>Your login sessions</td><td>The IP address and browser identification of each session, and a
               log of logins and logouts with the IP address</td></tr>
             <tr><td>What you do here</td><td>The events you starred and when, your status on each event you marked,
-              and the organisations you suggested (their web address and name) with their progress</td></tr>
+              the events you added (the address of their page, and the day and place you gave) and the organisations
+              you suggested (their web address and name), each with its progress</td></tr>
           </tbody>
         </table>
       </div>
@@ -114,12 +115,13 @@
       <p>Only I, as the operator, and Supabase, on my behalf, can see this data. Other users never see your email
         address, your stars or your statuses. Once I approve an organisation you suggested, automated jobs on GitHub Actions
         fetch and summarise its public pages, using an AI model through OpenRouter; they work with the
-        organisation's pages, not with your account.</p>
+        organisation's pages, not with your account. An event you add is fetched and checked by such a job at once,
+        and the AI model may read its page; once it passes, the event is on the public board without your name.</p>
 
       <h3>How long it is kept</h3>
       <p>As long as your account exists. To delete it, email me from the address you logged in with: I then delete
-        your account with your stars, statuses, sessions and login log. Organisations you suggested stay on the radar,
-        no longer linked to you.</p>
+        your account with your stars, statuses, sessions and login log. Events you added and organisations you
+        suggested stay on the radar, no longer linked to you.</p>
 
       <h2>What the page keeps in your browser</h2>
       <p>The page keeps a few entries in your browser's local storage. None is read by anyone else, and none is
@@ -149,7 +151,7 @@
         <span lang="de">Bayerisches Landesamt für Datenschutzaufsicht</span> (BayLDA), Postfach 1349, 91504 Ansbach,
         <a href="https://www.lda.bayern.de" rel="noopener">www.lda.bayern.de</a>.</p>
 
-      <p class="updated">Last updated 14 October 2026.</p>
+      <p class="updated">Last updated 18 October 2026.</p>
     </article>
   </main>
 

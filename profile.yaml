@@ -50,11 +50,13 @@ keywords:
 # The radar's scope besides AI (Alp, 2026-10-17; ADR 0011). An event is off topic, and is
 # not stored, when it is not about AI, is of no `any_topic_kinds` kind, its organiser is
 # neither AI-focused nor of kind `startup`, and its title, description and organiser hold
-# none of these words.
+# none of these words. `developer` is Alp's "coding, developer" (2026-10-18; ADR 0014 D9);
+# " coding " is a word, so "encoding" is not one.
 scope:
   startup: [startup, start up, founder, gründer, gründung, entrepreneur, venture capital,
             accelerator, incubator, inkubator, pitch, investor, demo day]
   career: [career, karriere, " job", recruiting, hiring, internship, praktikum]
+  developer: [" coding ", developer, programming, software engineer]
 
 # Who the board is not for (Alp, 2026-10-17: "our audience is young adults/ adults", and
 # families too; ADR 0012). An event aimed at one of these audiences is not stored, whatever

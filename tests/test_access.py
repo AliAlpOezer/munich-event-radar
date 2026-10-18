@@ -4,12 +4,14 @@ logged-in user, with the JWT claims set and only the api schema on the search pa
 import json
 import uuid
 from contextlib import contextmanager
+from datetime import UTC, date, datetime, timedelta
 
 import pytest
 from psycopg import errors, sql
 
 from conftest import TEST_DSN
-from event_radar.model import JudgedEvent, Verdict
+from event_radar.model import Evidence, JudgedEvent, ParsedEvent, SourceClass, Verdict
+from event_radar.platforms import canonical
 from event_radar.store import Store
 
 PRIVATE = (
@@ -175,6 +177,8 @@ def test_private_tables_and_writes_are_closed(store, board, users):
         "SELECT set_status('x', 'applied')",
         "SELECT set_star('x', true)",
         "SELECT suggest_organisation('https://a.org')",
+        "SELECT suggest_event('https://a.org/e', current_date + 1, 'Munich')",
+        "SELECT remove_event(1)",
     ):
         with pytest.raises(errors.InsufficientPrivilege), api(store) as db:
             db.execute(call)
@@ -316,6 +320,150 @@ def test_a_suggestion_waits_for_an_admin(store, users):
     with api(store, admin) as db:
         own = db.execute("SELECT suggest_organisation('https://admin.example')").fetchone()
     assert store.intakes.get(own["suggest_organisation"])["state"] == "queued"
+
+
+def _soon() -> date:
+    return (datetime.now(UTC) + timedelta(days=30)).date()
+
+
+def _add_event(store, user, url, place="Munich") -> int:
+    with api(store, user) as db:
+        return db.execute("SELECT suggest_event(%s, %s, %s)", (url, _soon(), place)).fetchone()[
+            "suggest_event"
+        ]
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "https://Example.org",
+        "HTTPS://EXAMPLE.org/A/b/?x=1&y=2#frag",
+        "https://example.org/e?",
+        "https://example.org/a#x?y",
+        "http://example.org:8080/path//",
+        " https://lu.ma/abc123/ ",
+    ],
+)
+def test_the_store_spells_a_page_as_the_harvester_does(store, url):
+    with store.tx() as db:
+        spelt = db.execute("SELECT canonical_url(%s) AS url", (url,)).fetchone()["url"]
+    assert spelt == canonical(url)
+
+
+def test_anyone_logged_in_adds_an_event_within_the_caps(store, users):
+    alice, bob = users(), users()
+    admin = users("admin@example.org")
+    store.users.grant_admin("admin@example.org")
+    first = _add_event(store, alice, "https://Example.org/ai-night/", place=" Munich ")
+    with api(store, alice) as db:
+        [mine] = db.execute("SELECT * FROM intakes").fetchall()
+    assert (mine["kind"], mine["state"], mine["starts_on"], mine["place"], mine["mine"]) == (
+        "event",
+        "queued",
+        _soon(),
+        "Munich",
+        True,
+    )
+    assert store.intakes.next_queued()["id"] == first
+    for url, day, place in (
+        ("javascript:alert(1)", _soon(), "Munich"),
+        ("https://example.org/e", None, "Munich"),
+        ("https://example.org/e", date(2020, 1, 1), "Munich"),
+        ("https://example.org/e", _soon(), "  "),
+        ("https://example.org/e", _soon(), "x" * 201),
+    ):
+        with pytest.raises(errors.InvalidParameterValue), api(store, alice) as db:
+            db.execute("SELECT suggest_event(%s, %s, %s)", (url, day, place))
+    # One intake per page, in any spelling: while it is checked, and once it is added.
+    for state in ("checking", "done"):
+        store.intakes.update(first, state=state)
+        with pytest.raises(errors.UniqueViolation), api(store, bob) as db:
+            db.execute(
+                "SELECT suggest_event('https://example.org/ai-night#tickets', %s, 'Munich')",
+                (_soon(),),
+            )
+    store.intakes.update(first, state="rejected")
+    store.intakes.update(_add_event(store, bob, "https://example.org/ai-night"), state="failed")
+
+    opened = [_add_event(store, alice, f"https://example.org/e{i}") for i in range(5)]
+    with pytest.raises(errors.ProgramLimitExceeded, match="5 events"), api(store, alice) as db:
+        db.execute("SELECT suggest_event('https://example.org/e5', %s, 'Munich')", (_soon(),))
+    for intake_id in opened:
+        store.intakes.update(intake_id, state="done")
+    for i in range(5, 9):
+        _add_event(store, alice, f"https://example.org/e{i}")
+    with pytest.raises(errors.ProgramLimitExceeded, match="10 events"), api(store, alice) as db:
+        db.execute("SELECT suggest_event('https://example.org/e9', %s, 'Munich')", (_soon(),))
+    for i in range(11):
+        _add_event(store, admin, f"https://example.org/by-admin-{i}")
+
+
+def test_an_admin_removes_an_added_event_and_its_page_stays_off(store, users):
+    alice, admin = users(), users("admin@example.org")
+    store.users.grant_admin("admin@example.org")
+    page = "https://example.org/ai-night"
+    intake_id = _add_event(store, alice, page)
+    with pytest.raises(errors.ObjectNotInPrerequisiteState), api(store, admin) as db:
+        db.execute("SELECT remove_event(%s)", (intake_id,))
+    # What the drain leaves behind for an added page (ADR 0014, Flow).
+    store.sources.add(page, "event_page", "OWN", 72, f"intake:{intake_id}")
+    digest = store.pages.record(page, b"<html>AI Night</html>")
+    store.extraction.enqueue(digest, page, 0)
+    store.observations.add(
+        digest, page, SourceClass.OWN, "jsonld@2", [ParsedEvent({"title": Evidence("AI Night")})]
+    )
+    store.events.save(
+        [
+            JudgedEvent({"url:a"}, {"title": {"value": "AI Night"}}, "url", _verdict(), [page]),
+            JudgedEvent(
+                {"url:b"},
+                {"title": {"value": "Shared"}},
+                "url",
+                _verdict(),
+                [page, "https://other.example/list"],
+            ),
+        ]
+    )
+    keys = {e["fields"]["title"]["value"]: e["key"] for e in store.events.all()}
+    with api(store, alice) as db:
+        db.execute("SELECT set_status(%s, 'applied')", (keys["AI Night"],))
+        db.execute("SELECT set_star(%s, true)", (keys["AI Night"],))
+    with store.tx() as db:
+        db.execute(
+            "INSERT INTO push_ledger (event_key, kind, fact_hash, state, created_at)"
+            " VALUES (%s, 'new', 'h', 'sent', now())",
+            (keys["AI Night"],),
+        )
+    store.intakes.update(intake_id, state="done")
+    with pytest.raises(errors.InsufficientPrivilege), api(store, alice) as db:
+        db.execute("SELECT remove_event(%s)", (intake_id,))
+    organisation = store.intakes.create("https://example.org", None, None)
+    store.intakes.update(organisation, state="done")
+    with pytest.raises(errors.WrongObjectType), api(store, admin) as db:
+        db.execute("SELECT remove_event(%s)", (organisation,))
+    # A judge running now would write the event back.
+    with store.lock("judge"), pytest.raises(errors.LockNotAvailable), api(store, admin) as db:
+        db.execute("SELECT remove_event(%s)", (intake_id,))
+
+    with api(store, admin) as db:
+        assert db.execute("SELECT remove_event(%s)", (intake_id,)).fetchone()["remove_event"] == 1
+        assert db.execute("SELECT remove_event(%s)", (intake_id,)).fetchone()["remove_event"] == 0
+    # The event only that page held is gone with what hangs on it; the shared one stays
+    # until the next judge rewrites it from its other source.
+    assert [e["key"] for e in store.events.all()] == [keys["Shared"]]
+    assert store.sources.get(page) is None and _stars(store) == []
+    with store.tx() as db:
+        for table in ("observation", "extraction_job", "snapshot", "push_ledger", "user_state"):
+            assert db.execute(sql.SQL("SELECT FROM {}").format(sql.Identifier(table))).rowcount == 0
+        aliases = db.execute("SELECT alias FROM event_alias").fetchall()
+    assert aliases == [{"alias": "url:b"}]
+    row = store.intakes.get(intake_id)
+    assert row["state"] == "removed" and row["log"][-1]["step"] == "removed"
+    with pytest.raises(errors.InsufficientPrivilege, match="removed"), api(store, alice) as db:
+        db.execute(
+            "SELECT suggest_event('https://example.org/ai-night/', %s, 'Munich')", (_soon(),)
+        )
+    assert store.intakes.get(_add_event(store, admin, page))["state"] == "queued"
 
 
 def _unclaimed(store, key, status):

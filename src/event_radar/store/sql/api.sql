@@ -58,8 +58,8 @@ SELECT id, started_at, finished_at, outcome, COALESCE(summary, '{}') AS summary 
 
 CREATE VIEW intakes WITH (security_invoker = true) AS
 SELECT
-    id, url, events_url, name, state, approved, profile, log, result, organiser_id, error,
-    created_at, updated_at, submitted_by = (SELECT auth.uid()) AS mine
+    id, kind, url, events_url, name, starts_on, place, state, approved, profile, log, result,
+    organiser_id, error, created_at, updated_at, submitted_by = (SELECT auth.uid()) AS mine
 FROM intake;
 
 CREATE FUNCTION me() RETURNS jsonb
@@ -200,6 +200,115 @@ BEGIN
 END
 $$;
 
+-- Adding one event from its page (ADR 0014). It is checked at once, with no review: the
+-- page must name the day and the place. Caps per account that is not an admin (D8): 5 being
+-- checked and 10 a day; and one intake per page, which a page an admin removed never passes
+-- again unless an admin gives it.
+CREATE FUNCTION suggest_event(url text, starts_on date, place text) RETURNS bigint
+LANGUAGE plpgsql SECURITY DEFINER SET search_path FROM CURRENT AS $$
+#variable_conflict use_column
+DECLARE
+    uid uuid := auth.uid();
+    by_admin boolean := is_admin();
+    page text := btrim(suggest_event.url);
+    spot text := nullif(btrim(suggest_event.place), '');
+    taken text;
+    open_count integer;
+    day_count integer;
+    new_id bigint;
+BEGIN
+    IF uid IS NULL THEN
+        RAISE EXCEPTION 'Log in to add an event' USING ERRCODE = 'insufficient_privilege';
+    END IF;
+    IF page IS NULL OR page !~ '^https?://[^\s/]+[^\s]*$' OR length(page) > 2048 THEN
+        RAISE EXCEPTION 'Give the event''s web address, starting with http:// or https://'
+            USING ERRCODE = 'invalid_parameter_value';
+    END IF;
+    IF suggest_event.starts_on IS NULL
+        OR suggest_event.starts_on < (now() AT TIME ZONE 'Europe/Berlin')::date
+    THEN
+        RAISE EXCEPTION 'Give the day of an event that has not happened yet'
+            USING ERRCODE = 'invalid_parameter_value';
+    END IF;
+    IF spot IS NULL OR length(spot) > 200 THEN
+        RAISE EXCEPTION 'Give the place, such as the venue or the city, in under 200 characters'
+            USING ERRCODE = 'invalid_parameter_value';
+    END IF;
+    PERFORM pg_advisory_xact_lock(hashtext('event-intake ' || canonical_url(page)));
+    SELECT state INTO taken FROM intake
+    WHERE kind = 'event' AND canonical_url(intake.url) = canonical_url(page)
+        AND state NOT IN ('rejected', 'failed') AND (state <> 'removed' OR NOT by_admin)
+    ORDER BY state = 'removed' DESC
+    LIMIT 1;
+    IF taken = 'removed' THEN
+        RAISE EXCEPTION 'An admin removed this event from the radar'
+            USING ERRCODE = 'insufficient_privilege';
+    ELSIF taken = 'done' THEN
+        RAISE EXCEPTION 'This event was added already' USING ERRCODE = 'unique_violation';
+    ELSIF taken IS NOT NULL THEN
+        RAISE EXCEPTION 'This event is being checked already' USING ERRCODE = 'unique_violation';
+    END IF;
+    IF NOT by_admin THEN
+        PERFORM pg_advisory_xact_lock(hashtext(uid::text));
+        SELECT count(*) FILTER (WHERE state IN ('queued', 'checking', 'harvesting')),
+            count(*) FILTER (WHERE created_at > now() - interval '1 day')
+        INTO open_count, day_count
+        FROM intake WHERE kind = 'event' AND submitted_by = uid;
+        IF open_count >= 5 THEN
+            RAISE EXCEPTION 'You have 5 events being checked; wait for them first'
+                USING ERRCODE = 'program_limit_exceeded';
+        END IF;
+        IF day_count >= 10 THEN
+            RAISE EXCEPTION 'You added 10 events in the last day; try again tomorrow'
+                USING ERRCODE = 'program_limit_exceeded';
+        END IF;
+    END IF;
+    INSERT INTO intake (kind, url, starts_on, place, state, submitted_by, created_at, updated_at)
+    VALUES ('event', page, suggest_event.starts_on, spot, 'queued', uid, now(), now())
+    RETURNING id INTO new_id;
+    RETURN new_id;
+END
+$$;
+
+-- An admin takes an added event off the board, and its page stays off (ADR 0014 D7): one
+-- transaction, so an event is never half removed. Returns how many events were deleted.
+CREATE FUNCTION remove_event(intake_id bigint) RETURNS integer
+LANGUAGE plpgsql SECURITY DEFINER SET search_path FROM CURRENT AS $$
+#variable_conflict use_column
+DECLARE
+    found_kind text;
+    current_state text;
+    deleted integer;
+BEGIN
+    IF NOT is_admin() THEN
+        RAISE EXCEPTION 'Only an admin can remove an event'
+            USING ERRCODE = 'insufficient_privilege';
+    END IF;
+    SELECT kind, state INTO found_kind, current_state
+    FROM intake WHERE id = remove_event.intake_id FOR UPDATE;
+    IF NOT FOUND THEN
+        RAISE EXCEPTION 'No intake with this id' USING ERRCODE = 'no_data_found';
+    END IF;
+    IF found_kind <> 'event' THEN
+        RAISE EXCEPTION 'Only an added event can be removed' USING ERRCODE = 'wrong_object_type';
+    END IF;
+    IF current_state = 'removed' THEN
+        RETURN 0;
+    END IF;
+    IF current_state NOT IN ('done', 'rejected', 'failed') THEN
+        RAISE EXCEPTION 'This event is still being checked; remove it once that is done'
+            USING ERRCODE = 'object_not_in_prerequisite_state';
+    END IF;
+    deleted := drop_intake_page(remove_event.intake_id, false);
+    UPDATE intake SET
+        state = 'removed',
+        updated_at = now(),
+        log = log || intake_log_entry('removed', 'Removed from the board by an admin.', 'warn')
+    WHERE id = remove_event.intake_id;
+    RETURN deleted;
+END
+$$;
+
 DO $$
 BEGIN
     EXECUTE format('GRANT USAGE ON SCHEMA %I TO anon, authenticated, service_role',
@@ -211,4 +320,5 @@ GRANT SELECT ON events, organisers TO anon, authenticated;
 GRANT SELECT ON runs, intakes TO authenticated;
 GRANT EXECUTE ON FUNCTION me(), board_status() TO anon, authenticated;
 GRANT EXECUTE ON FUNCTION set_status(text, text), set_star(text, boolean),
-    suggest_organisation(text, text, text), decide_intake(bigint, boolean) TO authenticated;
+    suggest_organisation(text, text, text), decide_intake(bigint, boolean),
+    suggest_event(text, date, text), remove_event(bigint) TO authenticated;

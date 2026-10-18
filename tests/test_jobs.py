@@ -7,6 +7,7 @@ import re
 import threading
 import time
 from datetime import UTC, datetime
+from pathlib import Path
 
 import httpx
 import pytest
@@ -120,15 +121,19 @@ def _kept(store) -> set[bytes]:
 
 
 def test_pruning_keeps_what_a_fetch_or_the_llm_can_still_read(store):
+    for path in ("a", "b"):
+        store.sources.add(f"https://example.org/{path}", "event_page", "OWN", 72, "test")
     store.pages.record("https://example.org/a", b"a, old")
     store.pages.record("https://example.org/a", b"a, latest")
     waiting = store.pages.record("https://example.org/b", b"b, waiting for the llm")
     store.pages.record("https://example.org/b", b"b, latest")
     store.extraction.enqueue(waiting, "https://example.org/b", priority=0)
+    # A page that is no source, such as one an event intake refused, is fetched no more.
+    store.pages.record("https://example.org/refused", b"refused")
     _age_bodies(store)
     store.pages.save(b"just stored by another job")
 
-    assert store.pages.prune() == 1
+    assert store.pages.prune() == 2
     assert _kept(store) == {
         b"a, latest",
         b"b, waiting for the llm",
@@ -173,8 +178,9 @@ def test_a_malformed_link_on_a_page_does_not_stop_the_harvest(store, profile):
         return httpx.Response(200, content=body, headers={"content-type": "text/html"})
 
     client = httpx.Client(transport=httpx.MockTransport(handler))
+    org = store.organisers.add("Example", "example.org", "test")
     for path in pages:
-        store.sources.add(f"https://example.org{path}", "listing", "OWN", 24, "test")
+        store.sources.add(f"https://example.org{path}", "listing", "OWN", 24, "test", org)
     harvester = Harvester(
         store, profile, Fetcher(store, "test-agent", min_interval_s=0, client=client)
     )
@@ -184,12 +190,39 @@ def test_a_malformed_link_on_a_page_does_not_stop_the_harvest(store, profile):
     assert {"https://example.org/events/1", "https://example.org/events/2"} <= followed
 
 
+def test_a_page_without_an_organiser_follows_no_links(store, profile):
+    # ADR 0014 D4: an added event's page puts none of its links on the radar.
+    luma = (Path(__file__).parent / "fixtures" / "luma-event.html").read_bytes()
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/robots.txt":
+            return httpx.Response(404)
+        return httpx.Response(200, content=luma, headers={"content-type": "text/html"})
+
+    client = httpx.Client(transport=httpx.MockTransport(handler))
+    org = store.organisers.add("Example AI", "luma.com/example", "test")
+    added, tracked = "https://luma.com/example-ai-night", "https://luma.com/example-ai-night-3"
+    store.sources.add(added, "event_page", "TICKET", 72, "intake:1")
+    store.sources.add(tracked, "event_page", "TICKET", 72, "test", org)
+    harvester = Harvester(
+        store, profile, Fetcher(store, "test-agent", min_interval_s=0, client=client)
+    )
+    harvester.harvest_due()
+    assert harvester.counts["fetched"] == 2
+    followed = {
+        s["url"]: s["organiser_id"]
+        for s in store.sources.all()
+        if s["added_via"].startswith("link:")
+    }
+    assert followed == {"https://luma.com/example-ai-night-2": org}
+
+
 TALK = "https://example.org/events/talk"
 
 
 class _Answers:
     """An LLM stand-in. It sorts events as related unless their line names one of
-    `unrelated`, names a page's talk as its event, and keeps what it was asked."""
+    `unrelated`, names a page's talks as its events, and keeps what it was asked."""
 
     def __init__(self, unrelated: tuple[str, ...] = ()):
         self.unrelated = unrelated
@@ -207,8 +240,8 @@ class _Answers:
             ]
             return "test-model", {"verdicts": verdicts}
         self.asked.append(question)
-        title = re.search(r"Talk on [\w ]+", question).group(0).strip()
-        return "test-model", {"events": [{"title": {"value": title, "quote": title}}]}
+        titles = [t.strip() for t in re.findall(r"Talk on [\w ]+", question)]
+        return "test-model", {"events": [{"title": {"value": t, "quote": t}} for t in titles]}
 
 
 def _page(title: str, nonce: str) -> bytes:
@@ -392,3 +425,20 @@ def test_a_childrens_event_is_not_asked_about_and_not_stored(store, profile):
     assert _states(store)["/events/kids"] == "skipped"
     assert [e["fields"]["title"]["value"] for e in store.events.all()] == ["Talk on AI agents"]
     assert harvester.counts["tier_audience"] == 1
+
+
+def test_a_page_without_an_organiser_read_as_several_events_keeps_none(store, profile):
+    # ADR 0014 D4: an added event's page holds one event, also when the daily run reads it.
+    two = b"<h1>Talk on 5 November</h1><h1>Talk on 12 November</h1>"
+    pages = {"/events/added": lambda: two, "/events/tracked": lambda: two}
+    harvester, _ = _site(store, profile, pages)
+    org = store.organisers.add("Example AI", "example.org", "test", ai_focus=True)
+    with store.tx() as db:
+        db.execute("UPDATE source SET organiser_id = %s WHERE url LIKE '%%/tracked'", (org,))
+    harvester.harvest_due()
+    harvester.extract()
+    seen = sorted(
+        (o.url.rsplit("/", 1)[1], o.fields["title"].value) for o in store.observations.all()
+    )
+    assert seen == [("tracked", "Talk on 12 November"), ("tracked", "Talk on 5 November")]
+    assert set(_states(store).values()) == {"done"} and harvester.counts["llm_several"] == 1
