@@ -24,8 +24,13 @@ a_kinds: [career_fair, conference, symposium, flagship_lecture, hackathon, progr
 # assumption. TUM's central listing is hackaTUM's only dated source until the LLM runs.
 any_topic_kinds: [career_fair, hackathon]
 
+# Keywords match the words of an event's title, description and organiser, lowercased and
+# with punctuation read as a space, so "AI," and "(AI)" count and "aims" does not. Write them
+# without punctuation; a leading or trailing space makes a word start or end there (" job"
+# matches "jobs", " ai " only "ai"). The kind is read from the title alone: a description
+# names other formats too ("a week of workshops, hackathons and networking").
 keywords:
-  ai: [" ki ", "ki-", "künstliche intelligenz", " ai ", "ai ", " ai", "a.i.", "artificial intelligence",
+  ai: [" ki ", "künstliche intelligenz", " ai ", " a i ", "artificial intelligence",
        "machine learning", "maschinelles lernen", "deep learning", "llm", "nlp", "data science",
        "agent", "genai", "generative", "neural", "computer vision", "robotics", "mlops"]
   kinds:
@@ -47,7 +52,7 @@ keywords:
 # neither AI-focused nor of kind `startup`, and its title, description and organiser hold
 # none of these words.
 scope:
-  startup: [startup, start-up, founder, gründer, gründung, entrepreneur, venture capital,
+  startup: [startup, start up, founder, gründer, gründung, entrepreneur, venture capital,
             accelerator, incubator, inkubator, pitch, investor, demo day]
   career: [career, karriere, " job", recruiting, hiring, internship, praktikum]
 

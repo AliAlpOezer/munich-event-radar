@@ -71,6 +71,18 @@ def test_luma_page_carries_registration_state():
     assert not result.needs_llm
 
 
+def test_a_luma_page_keeps_its_description_for_the_scope_check():
+    result = parse(LUMA, "text/html", page("luma-event.html"), Kind.EVENT_PAGE)
+    fields = {k: v.value for k, v in result.events[0].fields.items()}
+    assert fields["description"] == (
+        "Builders and founders show what they shipped.\nDemos, then drinks.\nDoors open at 18:00"
+    )
+    bare = {**fields, "title": "The Night Shift", "organiser": "START Munich"}
+    assert verdict(ai_focus=False, **bare).tier == "C"
+    bare.pop("description")
+    assert verdict(ai_focus=False, **bare).drop_reason == "off_topic"
+
+
 def test_a_luma_event_page_follows_events_but_not_its_category_pages():
     result = parse(LUMA, "text/html", page("luma-event.html"), Kind.EVENT_PAGE)
     assert result.follow == ("https://luma.com/example-ai-night-2",)
@@ -280,6 +292,31 @@ def test_unknown_ai_relevance_surfaces_only_for_ai_focused_organisers():
     assert verdict(ai_focus=False, title="Workshop on AI agents").tier == "B"
     assert verdict(ai_focus=False, title="HackaTUM for computer science").tier == "A"
     assert verdict(ai_focus=False, title="Firmenkontaktmesse IKOM").tier == "A"
+
+
+def test_keywords_match_whole_words_whatever_the_punctuation():
+    def relevance(text):
+        return JUDGE.ai_relevance({"title": {"value": "Meetup"}, "description": {"value": text}})
+
+    for text in ("Agents and AI, live", "Tools (AI) for teams", "AI-powered search", "KI-gestützt"):
+        assert relevance(text) == "core", text
+    for text in ("Confidential computing aims to help", "Fresh air in Dubai", "Ski-Ausflug"):
+        assert relevance(text) == "unknown", text
+    assert verdict(ai_focus=False, title="Meet the Start-up Founders").tier == "C"
+
+
+def test_a_keyword_with_punctuation_is_refused(tmp_path):
+    text = (REPO / "profile.yaml").read_text(encoding="utf-8").replace('" ki ",', '"ki-",', 1)
+    (tmp_path / "profile.yaml").write_text(text, encoding="utf-8")
+    with pytest.raises(ValueError, match="ki-"):
+        Profile.load(tmp_path / "profile.yaml")
+
+
+def test_the_kind_comes_from_the_title_not_the_description():
+    about = "About the club: a week of workshops, hackathons and networking every year."
+    talk = verdict(title="Fundraising in the age of AI", description=about)
+    assert talk.tier == "B" and "kind=None" in talk.reasons
+    assert verdict(title="Fundraising in the age of AI", kind="conference").tier == "A"
 
 
 def test_events_outside_ai_startups_and_careers_are_off_topic():

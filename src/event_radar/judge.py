@@ -6,6 +6,13 @@ from .profile import Profile
 from .resolve import local_date
 
 
+def _words(*parts: object) -> str:
+    """The parts as their words, lowercased and spaced, so a keyword matches whatever
+    punctuation surrounds it."""
+    text = " ".join(str(p) for p in parts if p).lower()
+    return " " + " ".join(re.findall(r"[^\W_]+", text)) + " "
+
+
 class Judge:
     """Tiers an event by the profile's rules, or drops it with the rule that dropped it."""
 
@@ -37,18 +44,15 @@ class Judge:
         return ("online", f"description '{phrase}'") if phrase else (None, None)
 
     def _text(self, fields: dict) -> str:
-        parts = (field_value(fields, n) for n in ("title", "description", "organiser"))
-        return " " + " ".join(str(p) for p in parts if p).lower() + " "
+        return _words(*(field_value(fields, n) for n in ("title", "description", "organiser")))
 
     def kind(self, fields: dict) -> str | None:
         if stated := field_value(fields, "kind"):
             return str(stated)
-        title = " " + str(field_value(fields, "title") or "").lower() + " "
-        text = self._text(fields)
-        for scope in (title, text):
-            for kind, words in self.profile.kind_keywords.items():
-                if any(w in scope for w in words):
-                    return kind
+        title = _words(field_value(fields, "title"))
+        for kind, words in self.profile.kind_keywords.items():
+            if any(w in title for w in words):
+                return kind
         return None
 
     def audience(self, fields: dict) -> tuple[str | None, str | None]:

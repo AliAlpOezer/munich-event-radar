@@ -37,6 +37,23 @@ def _availability(data: dict, ticket: dict, event: dict) -> str:
     )
 
 
+def _text(node: dict) -> str:
+    if node.get("type") == "text":
+        return node.get("text") or ""
+    if node.get("type") == "hard_break":
+        return "\n"
+    text = "".join(_text(n) for n in node.get("content") or [] if isinstance(n, dict))
+    return text + "\n" if node.get("type") in {"paragraph", "heading", "code_block"} else text
+
+
+def _description(data: dict) -> str | None:
+    """The event's description, which Luma keeps as a ProseMirror document: a line per
+    paragraph or line break."""
+    doc = data.get("description_mirror")
+    lines = (line.strip() for line in _text(doc).splitlines()) if isinstance(doc, dict) else ()
+    return "\n".join(line for line in lines if line) or None
+
+
 def _closes_at(data: dict) -> str | None:
     ends = [t.get("valid_end_at") for t in data.get("ticket_types") or [] if not t.get("is_hidden")]
     ends = [e for e in ends if e]
@@ -49,6 +66,7 @@ def _event(data: dict, event: dict) -> ParsedEvent:
     url = f"https://luma.com/{event['url']}" if event.get("url") else None
     values = {
         "title": event.get("name"),
+        "description": _description(data),
         "starts_at": event.get("start_at"),
         "ends_at": event.get("end_at"),
         "venue": geo.get("address"),
@@ -72,7 +90,7 @@ def _event(data: dict, event: dict) -> ParsedEvent:
 class Luma(Platform):
     name = "luma"
     hosts = ("luma.com", "lu.ma")
-    method = "luma@2"
+    method = "luma@3"
     event_url = re.compile(r"^https?://(?:www\.)?(?:luma\.com|lu\.ma)/([A-Za-z0-9-]{6,})/?$")
     not_events = frozenset(
         {
