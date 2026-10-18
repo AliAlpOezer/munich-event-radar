@@ -88,6 +88,7 @@ EVENT_FIELDS = (
     "prerequisites",
     "kind",
     "ai_relevance",
+    "audience",
 )
 
 
@@ -117,8 +118,11 @@ class ParseResult:
     needs_llm: bool = False
 
 
-# Outside the radar's scope (ADR 0011): such an event is not stored.
+# Outside the radar's scope (ADR 0011), or aimed at an audience other than adults (ADR
+# 0012): such an event is not stored.
 OFF_TOPIC = "off_topic"
+AUDIENCE = "audience"
+NOT_STORED = frozenset({OFF_TOPIC, AUDIENCE})
 
 
 @dataclass(frozen=True)

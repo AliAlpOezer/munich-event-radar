@@ -51,6 +51,20 @@ scope:
             accelerator, incubator, inkubator, pitch, investor, demo day]
   career: [career, karriere, " job", recruiting, hiring, internship, praktikum]
 
+# Who the board is not for (Alp, 2026-10-17: "our audience is young adults/ adults", and
+# families too; ADR 0012). An event aimed at one of these audiences is not stored, whatever
+# its topic, organiser or date: when the LLM states that `audience`, or its title holds one
+# of these phrases (curly apostrophes count as straight ones). A phrase names an event
+# format for that audience, never a topic, so "AI in Children's Medicine" and "Family
+# Office Summit" stay. Remove an audience to bring its events back.
+audience:
+  children: [children's university, children's program, kinderuni, kinder-uni, kinderprogramm,
+             kids', for kids, für kids]
+  school_pupils: [schüler, school pupils, for pupils, schoolchildren, girls' day, girls'day,
+                  boys' day, boys'day, zukunftstag, abiturient]
+  families: [family edition, family day, family program, for families, familientag,
+             familienfest, familienprogramm, familienführung, für familien]
+
 # Online-only signals, used when no parser states `attendance`. A venue counts only when the
 # whole venue is one of `venues` (after lowercasing and folding punctuation), so hybrid venues
 # such as "Online & Munich City Campus" stay in. `phrases` count only when the event has no

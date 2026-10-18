@@ -3,7 +3,7 @@ import uuid
 from psycopg import Connection, sql
 from psycopg.types.json import Jsonb
 
-from ..model import OFF_TOPIC, JudgedEvent
+from ..model import NOT_STORED, JudgedEvent
 from .database import Repository, now_iso
 
 # Alp's statuses: the owner's rows, or the unclaimed ones until an owner exists (ADR 0005).
@@ -19,8 +19,8 @@ class Events(Repository):
 
     def save(self, judged: list[JudgedEvent]) -> dict[str, int]:
         """Write each event under the key of the oldest event sharing an alias; the
-        other events it now spans merge into it. An off-topic event is not written, and
-        the events it spans are deleted (ADR 0011)."""
+        other events it now spans merge into it. An event off topic or for another
+        audience is not written, and the events it spans are deleted (ADRs 0011, 0012)."""
         stamp = now_iso()
         counts = {"new": 0, "updated": 0, "merged": 0, "deleted": 0}
         with self.database.tx() as db:
@@ -30,7 +30,7 @@ class Events(Repository):
                     " ON e.key = a.event_key WHERE a.alias = ANY(%s) ORDER BY e.first_seen",
                     (list(event.aliases),),
                 ).fetchall()
-                if event.verdict.drop_reason == OFF_TOPIC:
+                if event.verdict.drop_reason in NOT_STORED:
                     counts["deleted"] += _delete(db, [r["key"] for r in found])
                     continue
                 key = found[0]["key"] if found else uuid.uuid4().hex[:12]

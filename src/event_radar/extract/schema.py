@@ -1,4 +1,4 @@
-VERSION = "events-v1"
+VERSION = "events-v2"
 
 ENUMS = {
     "attendance": ["in_person", "online", "mixed"],
@@ -27,6 +27,7 @@ ENUMS = {
         "other",
     ],
     "ai_relevance": ["core", "some", "none"],
+    "audience": ["adults", "families", "school_pupils", "children"],
 }
 
 TEXT_FIELDS = {
@@ -98,5 +99,8 @@ Rules:
 - price "free_student_route" means students can attend free (volunteering, free student pass).
 - ai_relevance: "core" if AI, machine learning or data science is the topic, "some" if it is
   one theme among others, "none" if absent.
+- audience: whom the event is aimed at: "children", "school_pupils" (school students, also
+  those choosing a degree), "families" (parents with their children), or "adults"
+  (university students, professionals or the general public, also when children are welcome).
 - kind is one of: {", ".join(ENUMS["kind"])}.
 Return JSON only."""
