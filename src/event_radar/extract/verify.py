@@ -26,7 +26,9 @@ def _flat(text: str) -> str:
     return re.sub(r"\s+", " ", folded.replace("–", "-").replace("—", "-")).strip()
 
 
-def _date_in_quote(value: str, quote: str) -> tuple[bool, bool]:
+def names_date(value: str, quote: str) -> tuple[bool, bool]:
+    """Whether `quote` names the day of the ISO date `value`, in German or English, and
+    whether it states its year."""
     try:
         day = date.fromisoformat(value[:10])
     except ValueError:
@@ -59,7 +61,7 @@ def verify(raw: dict, page_text: str) -> tuple[ParsedEvent, list[str]]:
             rejected.append(name)
             continue
         if name in DATE_FIELDS:
-            found, year_stated = _date_in_quote(str(value), quote)
+            found, year_stated = names_date(str(value), quote)
             if not found:
                 rejected.append(name)
                 continue

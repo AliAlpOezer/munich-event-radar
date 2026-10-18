@@ -8,7 +8,7 @@ import httpx
 
 from .extract import Extractor, triage
 from .extract.router import AllModelsFailed, BudgetExhausted, DailyCapReached
-from .fetch import Fetcher
+from .fetch import Fetched, Fetcher
 from .judge import Judge
 from .model import JobState, JudgedEvent, Kind, SourceClass
 from .pipeline import ingest
@@ -69,6 +69,10 @@ class Harvester:
             fetched = self.renderer.fetch(source["url"])
         else:
             fetched = self.fetcher.get(source["url"])
+        self.take(source, fetched)
+
+    def take(self, source: dict, fetched: Fetched) -> None:
+        """Ingest one fetch of `source`, as `harvest` does after fetching it."""
         if not fetched.ok:
             self.store.sources.mark(source["id"], False, fetched.error, None)
             self.counts["fetch_errors"] += 1

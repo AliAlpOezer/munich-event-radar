@@ -1,13 +1,16 @@
+from datetime import date
+
 from psycopg import sql
 from psycopg.types.json import Jsonb
 
-from ..model import WORKING_INTAKE_STATES, IntakeState
+from ..model import WORKING_INTAKE_STATES, IntakeKind, IntakeState
 from .database import Repository, now_iso
 
 
 class Intakes(Repository):
-    """Organisations suggested for the registry and their progress (ADR 0003). Becoming
-    `queued` dispatches the intake workflow (ADR 0006 D3)."""
+    """Organisations suggested for the registry (ADR 0003) and events added from their
+    page (ADR 0014), with their progress. Becoming `queued` dispatches the intake workflow
+    (ADR 0006 D3)."""
 
     def create(self, url: str, events_url: str | None, name: str | None) -> int:
         stamp = now_iso()
@@ -16,6 +19,17 @@ class Intakes(Repository):
                 "INSERT INTO intake (url, events_url, name, created_at, updated_at)"
                 " VALUES (%s, %s, %s, %s, %s) RETURNING id",
                 (url, events_url, name, stamp, stamp),
+            ).fetchone()["id"]
+
+    def create_event(self, url: str, starts_on: date, place: str) -> int:
+        """An event intake as `api.suggest_event` makes one, without its checks of the
+        caller (ADR 0014)."""
+        stamp = now_iso()
+        with self.database.tx() as db:
+            return db.execute(
+                "INSERT INTO intake (kind, url, starts_on, place, created_at, updated_at)"
+                " VALUES (%s, %s, %s, %s, %s, %s) RETURNING id",
+                (IntakeKind.EVENT, url, starts_on, place, stamp, stamp),
             ).fetchone()["id"]
 
     def get(self, intake_id: int) -> dict | None:

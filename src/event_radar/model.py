@@ -46,6 +46,11 @@ class IntakeState(StrEnum):
     REMOVED = "removed"  # an added event an admin took off the board
 
 
+class IntakeKind(StrEnum):
+    ORGANISATION = "organisation"
+    EVENT = "event"
+
+
 WORKING_INTAKE_STATES = (
     IntakeState.CHECKING,
     IntakeState.PROFILING,

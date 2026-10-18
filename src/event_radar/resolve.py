@@ -2,12 +2,13 @@ import contextlib
 import re
 import unicodedata
 from collections import defaultdict
+from collections.abc import Iterable
 from dataclasses import dataclass, field
 from datetime import datetime
 from difflib import SequenceMatcher
 from zoneinfo import ZoneInfo
 
-from .model import Observation, SourceClass
+from .model import Evidence, Observation, SourceClass
 from .platforms import canonical
 
 CLASS_RANK = {SourceClass.TICKET: 0, SourceClass.OWN: 1, SourceClass.AGG: 2}
@@ -71,19 +72,21 @@ def local_minute(value: object) -> str | None:
     return moment.strftime("%Y-%m-%dT%H:%M") if moment else text[:16]
 
 
-def _aliases(obs: Observation) -> set[str]:
-    aliases = set(obs.platform_keys)
-    url = obs.fields.get("event_url")
-    if url and url.value:
-        aliases.add("url:" + canonical(str(url.value)))
-    if not aliases:
-        title = obs.fields.get("title")
-        start = obs.fields.get("starts_at")
-        aliases.add(
-            f"obs:{canonical(obs.url)}|{_norm(title and title.value)}|"
+def aliases(url: str, platform_keys: Iterable[str], fields: dict[str, Evidence]) -> set[str]:
+    """The keys an event seen on page `url` is known by: its platform keys and event URL,
+    else the page, its title and its day."""
+    found = set(platform_keys)
+    event_url = fields.get("event_url")
+    if event_url and event_url.value:
+        found.add("url:" + canonical(str(event_url.value)))
+    if not found:
+        title = fields.get("title")
+        start = fields.get("starts_at")
+        found.add(
+            f"obs:{canonical(url)}|{_norm(title and title.value)}|"
             f"{local_date(start and start.value)}"
         )
-    return aliases
+    return found
 
 
 def _latest_only(observations: list[Observation]) -> list[Observation]:
@@ -224,9 +227,9 @@ def resolve(observations: list[Observation]) -> list[Resolved]:
     uf = _UnionFind()
     alias_of = {}
     for obs in current:
-        aliases = _aliases(obs)
-        alias_of[obs.id] = aliases
-        first, *rest = sorted(aliases)
+        keys = aliases(obs.url, obs.platform_keys, obs.fields)
+        alias_of[obs.id] = keys
+        first, *rest = sorted(keys)
         for alias in rest:
             uf.union(alias, first)
     clusters: dict[str, Resolved] = {}

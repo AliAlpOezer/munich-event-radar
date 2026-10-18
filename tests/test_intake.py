@@ -1,5 +1,6 @@
 import json
-from datetime import UTC, datetime, timedelta
+import re
+from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 
 import httpx
@@ -9,7 +10,7 @@ from selectolax.lexbor import LexborHTMLParser
 from event_radar.fetch import Fetched
 from event_radar.intake import discovery, urls
 from event_radar.intake.service import IntakeService
-from event_radar.model import IntakeState
+from event_radar.model import IntakeState, JudgedEvent, Verdict
 from event_radar.platforms import organiser_source
 
 FIXTURES = Path(__file__).parent / "fixtures"
@@ -231,3 +232,237 @@ def test_the_llm_profile_admits_a_genuine_organiser_and_rejects_a_fake(store, pr
     fake = store.intakes.create("https://spam.example", None, None)
     _service(store, profile, site, router=_Router({**CLUB, "legitimate": "no"})).process(fake)
     assert store.intakes.get(fake)["state"] == "rejected"
+
+
+# Adding one event from its page (ADR 0014).
+
+PAGE = "https://example.org/events/ai-night"
+A = Verdict("A", ("ai=core",))
+ONLINE = "https://schema.org/OnlineEventAttendanceMode"
+
+
+def _jsonld(name: str, start: str, **more) -> str:
+    event = {
+        "@context": "https://schema.org",
+        "@type": "Event",
+        "name": name,
+        "startDate": start,
+        "location": {
+            "@type": "Place",
+            "name": "Example Hall",
+            "address": {"addressLocality": "München", "streetAddress": "Arcisstr. 21"},
+        },
+        "offers": {"@type": "Offer", "price": "0", "url": "https://example.org/register"},
+        **more,
+    }
+    return f"<script type='application/ld+json'>{json.dumps(event)}</script>"
+
+
+def _page(*scripts: str, text: str = "") -> str:
+    return f"<html><body><main><p>{text}</p>{''.join(scripts)}</main></body></html>"
+
+
+def _day() -> date:
+    return date.fromisoformat(_start()[:10])
+
+
+def _add(store, profile, page: str, day: date | None = None, place: str = "Munich", url=PAGE):
+    """Work an event intake for `url`, which serves `page`; returns the service and row."""
+    service = _service(store, profile, {"/events/ai-night": page})
+    intake_id = store.intakes.create_event(url, day or _day(), place)
+    service.process(intake_id)
+    return service, store.intakes.get(intake_id)
+
+
+def test_an_event_with_structured_data_is_on_the_board_at_once(store, profile):
+    service, row = _add(store, profile, _page(_jsonld("Applied AI Night", _start())))
+    assert row["state"] == "done", row["log"]
+    [source] = store.sources.all()
+    assert (source["url"], source["kind"], source["organiser_id"], source["added_via"]) == (
+        PAGE,
+        "event_page",
+        None,
+        f"intake:{row['id']}",
+    )
+    [event] = store.events.all()
+    assert event["tier"] == "B" and row["error"] is None
+    assert row["result"] == {
+        "event_key": event["key"],
+        "title": "Applied AI Night",
+        "tier": "B",
+        "drop_reason": None,
+        "already": False,
+    }
+    assert [e["step"] for e in row["log"]] == ["checking", "done"]
+    # A job cut off mid-harvest resumes with the page it added.
+    store.intakes.update(row["id"], state="harvesting")
+    assert service.drain() == 1
+    assert store.intakes.get(row["id"])["result"] == row["result"]
+    assert len(store.sources.all()) == 1 and len(store.events.all()) == 1
+
+
+def test_a_page_without_structured_data_passes_on_its_words(store, profile):
+    day = _day()
+    text = f"Applied AI Night. {day.day} {day:%B %Y}, 18:00, Example Hall, München."
+    _, row = _add(store, profile, _page(text=text))
+    assert row["state"] == "done", row["log"]
+    assert row["result"] == {"waiting": True}
+    assert "next daily run" in row["log"][-1]["text"]
+    assert [s["url"] for s in store.sources.all()] == [PAGE]
+    assert [j["url"] for j in store.extraction.pending(10)] == [PAGE]
+
+
+@pytest.mark.parametrize(
+    ("page", "day", "place", "message"),
+    [
+        (
+            _page(_jsonld("Applied AI Night", "2030-11-05T18:00:00+01:00")),
+            date(2030, 11, 6),
+            "Munich",
+            "The page says the event is on 2030-11-05, not 2030-11-06.",
+        ),
+        (
+            _page(
+                _jsonld("Applied AI Night", "2030-11-05T18:00:00+01:00"),
+                _jsonld("Applied AI Day", "2030-11-12T18:00:00+01:00"),
+            ),
+            date(2030, 11, 5),
+            "Munich",
+            "The page lists 2 events; give the event's own page.",
+        ),
+        (
+            _page(text="Applied AI Night, every first Tuesday in Munich."),
+            date(2030, 11, 5),
+            "Munich",
+            "The page does not name 5 November 2030.",
+        ),
+        (
+            _page(text="Applied AI Night, 5 November, in Munich."),
+            date(2030, 11, 5),
+            "Munich",
+            "The page does not name 5 November 2030.",
+        ),
+        (
+            _page(_jsonld("Applied AI Night", "2030-11-05T18:00:00+01:00")),
+            date(2030, 11, 5),
+            "Werk1",
+            "The page does not name Werk1.",
+        ),
+        (
+            _page(text="Salsa night, 5 November 2030, in Munich."),
+            date(2030, 11, 5),
+            "Munich",
+            "The page is not about AI, startups, careers or coding.",
+        ),
+    ],
+    ids=["other day", "listing", "no day", "no year", "other place", "no topic words"],
+)
+def test_the_page_must_name_the_day_and_the_place(store, profile, page, day, place, message):
+    _, row = _add(store, profile, page, day, place)
+    assert (row["state"], row["error"]) == ("rejected", message), row["log"]
+    assert row["log"][-1]["level"] == "warn"
+    assert store.sources.all() == [] and store.events.all() == []
+
+
+@pytest.mark.parametrize(
+    ("event", "place", "message"),
+    [
+        (_jsonld("Talk on AI agents", "2020-03-01T18:00:00+01:00"), "Munich", "The event is over."),
+        (
+            _jsonld("Talk on AI agents", "2030-11-05T18:00:00+01:00", eventAttendanceMode=ONLINE),
+            "Munich",
+            "The event is online only; the radar shows events in Munich.",
+        ),
+        (
+            _jsonld(
+                "Talk on AI agents",
+                "2030-11-05T18:00:00+01:00",
+                location={"@type": "Place", "address": {"addressLocality": "Berlin"}},
+            ),
+            "Berlin",
+            "The event is not in Munich.",
+        ),
+        (
+            _jsonld("TUM tanzt!", "2030-11-05T18:00:00+01:00"),
+            "Munich",
+            "The page is not about AI, startups, careers or coding.",
+        ),
+        (
+            _jsonld("Children's University: How Do AI Agents Learn?", "2030-11-05T17:00:00+01:00"),
+            "Munich",
+            "The event is for children, school pupils or families; the radar is for adults.",
+        ),
+    ],
+    ids=["past", "online", "outside Munich", "off topic", "children"],
+)
+def test_the_judge_refuses_what_it_would_not_show(store, profile, event, place, message):
+    start = re.search(r'"startDate": "(\d{4}-\d{2}-\d{2})', event).group(1)
+    _, row = _add(store, profile, _page(event), date.fromisoformat(start), place)
+    assert (row["state"], row["error"]) == ("rejected", message), row["log"]
+    assert store.sources.all() == []
+
+
+def test_a_page_the_llm_reads_passes_on_its_words_though_its_title_names_no_topic(store, profile):
+    no_tickets = _jsonld("Fireside chat", "2030-11-05T18:00:00+01:00", offers=None)
+    page = _page(no_tickets, text="A fireside chat on machine learning in industry.")
+    _, row = _add(store, profile, page, date(2030, 11, 5))
+    assert row["state"] == "done", row["log"]
+    assert [j["url"] for j in store.extraction.pending(10)] == [PAGE]
+
+
+def test_a_page_on_the_radar_already_adds_nothing(store, profile):
+    org = store.organisers.add("Example AI Club", "example.org", "test", ai_focus=True)
+    store.sources.add(PAGE, "event_page", "OWN", 72, "seed", org)
+    title = {"title": {"value": "Applied AI Night"}}
+    store.events.save([JudgedEvent({f"url:{PAGE}"}, title, "url", A, [PAGE])])
+    [event] = store.events.all()
+    asked: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        asked.append(str(request.url))
+        return httpx.Response(404)
+
+    service = IntakeService(
+        store,
+        profile,
+        open_client=lambda ua: httpx.Client(transport=httpx.MockTransport(handler)),
+        guard=lambda host: None,
+        min_interval_s=0,
+    )
+    intake_id = store.intakes.create_event("https://EXAMPLE.org/events/ai-night/", _day(), "x")
+    service.process(intake_id)
+    row = store.intakes.get(intake_id)
+    assert row["state"] == "done" and asked == []
+    assert row["result"] == {
+        "event_key": event["key"],
+        "title": "Applied AI Night",
+        "tier": "A",
+        "drop_reason": None,
+        "already": True,
+    }
+    assert row["log"][-1]["text"] == "Already on the radar: Applied AI Night, tier A."
+    assert len(store.sources.all()) == 1
+
+
+def test_an_event_the_board_knows_from_another_page_adds_nothing(store, profile):
+    title = {"title": {"value": "Applied AI Night"}}
+    listing = "https://example.org/events"
+    store.events.save([JudgedEvent({f"url:{PAGE}"}, title, "url", A, [listing])])
+    page = _page(_jsonld("Applied AI Night", _start(), url=PAGE))
+    _, row = _add(store, profile, page, url=f"{PAGE}?utm_source=newsletter")
+    assert row["state"] == "done" and row["result"]["already"] is True, row["log"]
+    assert store.sources.all() == []
+
+
+def test_a_page_that_cannot_be_read_fails(store, profile):
+    _, row = _add(store, profile, "", url="https://example.org/events/gone")
+    assert (row["state"], row["error"]) == ("failed", "The page did not load: http_404.")
+
+    def guard(host: str | None) -> None:
+        raise urls.UnsafeAddress(f"{host} resolves to a non-public address (10.0.0.8)")
+
+    service = IntakeService(store, profile, guard=guard, min_interval_s=0)
+    intake_id = store.intakes.create_event("https://intranet.example/e", _day(), "Munich")
+    service.process(intake_id)
+    row = store.intakes.get(intake_id)
+    assert row["state"] == "failed" and row["error"].startswith("This address cannot be fetched")

@@ -74,6 +74,12 @@ class Judge:
             "core" if any(w in self._text(fields) for w in self.profile.ai_keywords) else "unknown"
         )
 
+    def names_scope(self, text: str) -> bool:
+        """`text` holds an AI or scope word: the check of a page without structured data
+        (ADR 0014)."""
+        found = _words(text)
+        return any(w in found for w in self.profile.ai_keywords + self.profile.scope_keywords)
+
     def in_scope(
         self, fields: dict, kind: str | None, relevance: str, *, ai_focus: bool, startup_focus: bool
     ) -> bool:
