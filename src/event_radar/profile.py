@@ -1,6 +1,7 @@
 """The relevance profile, `profile.yaml` (ADR 0002 D6): what counts as Munich, AI and each
 kind of event, and how intake recognises event and about pages."""
 
+import re
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -8,6 +9,14 @@ import yaml
 
 from .model import SourceClass
 from .platforms import is_ticket_host
+
+
+def _keywords(words: list[str]) -> tuple[str, ...]:
+    """The judge matches keywords against spaced words, so one holding punctuation could
+    never match."""
+    if bad := [w for w in words if not re.fullmatch(r"[^\W_]+( [^\W_]+)*", w.strip())]:
+        raise ValueError(f"keywords with punctuation never match: {bad}")
+    return tuple(words)
 
 
 @dataclass(frozen=True)
@@ -41,9 +50,9 @@ class Profile:
             aggregators=tuple(raw["aggregators"]),
             a_kinds=frozenset(raw["a_kinds"]),
             any_topic_kinds=frozenset(raw["any_topic_kinds"]),
-            ai_keywords=tuple(raw["keywords"]["ai"]),
-            kind_keywords={k: tuple(v) for k, v in raw["keywords"]["kinds"].items()},
-            scope_keywords=tuple(w for words in raw["scope"].values() for w in words),
+            ai_keywords=_keywords(raw["keywords"]["ai"]),
+            kind_keywords={k: _keywords(v) for k, v in raw["keywords"]["kinds"].items()},
+            scope_keywords=_keywords([w for words in raw["scope"].values() for w in words]),
             audiences={k: tuple(v) for k, v in raw["audience"].items()},
             online=Online(**{k: tuple(v) for k, v in raw["online"].items()}),
             link_signals=tuple(raw["intake"]["link_signals"]),
