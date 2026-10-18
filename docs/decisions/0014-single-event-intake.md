@@ -1,6 +1,6 @@
 # ADR 0014: Adding a single event from its page
 
-**Status:** PROPOSED, open questions below
+**Status:** DECIDED, being built on branch `event-intake`
 **Date:** 2026-10-18
 **Inputs:** Alp's request of 2026-10-18: anyone with an event's URL, giving its date and
 place, can add the event without its organisation, "still a fact check: fetch the page and
@@ -113,16 +113,15 @@ admin removes; removal is human-triggered and bound to one intake id.
 - No source is retired automatically (ADR 0008, the finding on `luma.com/climate`), so a
   submitted past event's page is fetched every 72 hours like every other.
 
-## Open questions for Alp
+## Alp's answers (2026-10-18)
 
-1. "coding" and "developer": as scope words they widen what the whole board keeps, not
-   only submitted events (invariant 2), and ADR 0011 chose AI, startups and careers, "not
-   every tech event". Proposed: measure first what a `developer` group (coding, developer,
-   programming, software engineering) would keep over the hosted observations
-   (`board_dump.py` with the changed profile), then decide.
-2. Publishing without review (D3): confirm, given that what a stranger submits shows on the
-   public board until an admin removes it.
-3. The caps of D8 (5 open, 10 a day): proposed numbers.
+Alp, to the three questions below: "i liked every suggestion. you can continue".
+
+| Question | Answer |
+|---|---|
+| "coding" and "developer" as scope words widen what the whole board keeps, not only submitted events (invariant 2); ADR 0011 chose AI, startups and careers, "not every tech event" | Measure first what a `developer` group (coding, developer, programming, software engineering) would keep over the hosted observations (`board_dump.py` with the changed profile), then decide |
+| Publishing without review (D3), though what a stranger submits shows on the public board until an admin removes it | Yes |
+| The caps of D8 | 5 open, 10 a day |
 
 ## Plan
 
