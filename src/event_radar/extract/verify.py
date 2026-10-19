@@ -3,7 +3,7 @@ import unicodedata
 from datetime import date
 
 from ..model import Evidence, ParsedEvent
-from .schema import DATE_FIELDS, ENUMS, URL_FIELDS
+from .schema import DATE_FIELDS, ENUMS, TEXT_FIELDS, URL_FIELDS
 
 MONTHS = {
     1: ("jan", "januar", "january", "jän"),
@@ -47,8 +47,9 @@ def verify(raw: dict, page_text: str) -> tuple[ParsedEvent, list[str]]:
     page = _flat(page_text)
     accepted: dict[str, Evidence] = {}
     rejected: list[str] = []
-    for name, item in raw.items():
-        value, quote = (item or {}).get("value"), (item or {}).get("quote")
+    for name in (*TEXT_FIELDS, *ENUMS):
+        item = raw.get(name) or {}
+        value, quote = item.get("value"), item.get("quote")
         if value in (None, ""):
             continue
         if not quote or _flat(quote) not in page:

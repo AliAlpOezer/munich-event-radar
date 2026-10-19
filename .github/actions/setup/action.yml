@@ -10,7 +10,7 @@ inputs:
 runs:
   using: composite
   steps:
-    - uses: actions/setup-python@v5
+    - uses: actions/setup-python@v7
       with:
         python-version: "3.12"
         cache: pip
@@ -21,7 +21,7 @@ runs:
         EXTRAS: ${{ inputs.extras }}
       run: pip install -e ".${EXTRAS:+[$EXTRAS]}"
     - if: inputs.browser == 'true'
-      uses: actions/cache@v4
+      uses: actions/cache@v6
       with:
         path: ~/.cache/ms-playwright
         key: playwright-${{ runner.os }}-${{ hashFiles('pyproject.toml') }}

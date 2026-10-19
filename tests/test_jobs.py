@@ -13,6 +13,7 @@ import httpx
 import pytest
 
 from event_radar.extract import Extractor
+from event_radar.extract.router import Model, Provider, Router
 from event_radar.fetch import Fetcher
 from event_radar.harvester import Harvester
 from event_radar.intake.service import IntakeService
@@ -327,6 +328,59 @@ def test_the_llm_queue_stops_at_its_deadline(store, profile):
     harvester.harvest_due()
     harvester.extract(until=datetime.now(UTC))
     assert answers.asked == [] and len(store.extraction.pending(10)) == 1
+
+
+SHAPELESS = {"events": [{"title": "Talk on 5 November", "venue": "Room 1"}]}
+
+
+def test_a_model_answering_out_of_shape_hands_over_to_the_next(store, profile):
+    """The harvest of 2026-10-19 crashed on an answer giving an event's fields as bare
+    strings instead of each value with its quote."""
+    talk = {"title": {"value": "Talk on 5 November", "quote": "Talk on 5 November"}}
+    replies = iter([SHAPELESS, {"events": [talk]}])
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path.endswith("/models"):
+            return httpx.Response(200, json={"data": [{"id": "first"}]})
+        body = json.loads(request.content)
+        if body.get("response_format", {}).get("json_schema", {}).get("name") == "verdicts":
+            answer = {"verdicts": [{"id": 0, "relevant": True}]}
+        else:
+            answer = next(replies)
+        message = {"content": json.dumps(answer)}
+        return httpx.Response(200, json={"choices": [{"message": message}]})
+
+    models = (Model("first", "schema"), Model("openrouter/free", "json_object"))
+    router = Router(
+        [Provider("openrouter", "https://llm.example", "k", 10, models)],
+        store,
+        httpx.MockTransport(handler),
+    )
+    harvester, _ = _talk_site(store, profile, [_page("Talk on 5 November", "a")])
+    harvester.extractor = Extractor(router, store)
+    harvester.harvest_due()
+    harvester.extract()
+    [seen] = store.observations.all()
+    assert seen.method == "llm:openrouter/free@events-v2"
+    assert seen.fields["title"].value == "Talk on 5 November"
+
+
+def test_an_answer_cached_out_of_shape_is_asked_again(store, profile):
+    versions = [_page("Talk on 5 November", "a"), _page("Talk on 5 November", "b")]
+    harvester, answers = _talk_site(store, profile, versions)
+    harvester.harvest_due()
+    harvester.extract()
+    with store.tx() as db:
+        db.execute(
+            "UPDATE extraction SET result = %s WHERE version = 'events-v2'",
+            (json.dumps({"model": "test-model", "result": SHAPELESS}),),
+        )
+    _due_again(store)
+    harvester.harvest_due()
+    harvester.extract()
+    assert len(answers.asked) == 2
+    titles = [o.fields["title"].value for o in store.observations.all()]
+    assert titles == ["Talk on 5 November", "Talk on 5 November"]
 
 
 def test_a_source_is_due_a_few_hours_before_its_cadence_passes(store):
