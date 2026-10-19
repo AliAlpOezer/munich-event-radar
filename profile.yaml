@@ -99,3 +99,58 @@ intake:
                  kalender, calendar, agenda, meetups, meetup, workshops, hackathons]
   # Link text that points to an about or imprint page, which step 2 gives the LLM.
   about_signals: [about, about us, über uns, ueber uns, impressum, imprint, legal notice, team]
+
+# The daily web search (ADR 0016). Each day takes the next `daily_cap` queries, one Tavily
+# credit each; the free plan has 1,000 a month (checked 2026-10-19,
+# https://docs.tavily.com/documentation/api-credits). A hit needs an AI or scope word and a
+# Munich place in its title, snippet or URL, and at most `daily_candidates` wait for review
+# a day. Excluded sites never hold an organiser's own events page; the form services are
+# registration pages, not events.
+search:
+  daily_cap: 25
+  daily_candidates: 5
+  queries:
+    - AI meetup Munich
+    - machine learning meetup Munich
+    - data science meetup Munich
+    - generative AI event Munich
+    - AI agents meetup Munich
+    - LLM workshop Munich
+    - deep learning workshop Munich
+    - computer vision meetup Munich
+    - MLOps meetup Munich
+    - AI hackathon Munich
+    - hackathon Munich students
+    - AI conference Munich
+    - AI symposium Munich
+    - AI lecture series Munich
+    - AI talk Munich university
+    - robotics AI event Munich
+    - AI networking event Munich
+    - AI startup event Munich
+    - startup pitch night Munich
+    - founder meetup Munich
+    - venture capital event Munich
+    - AI demo day Munich
+    - tech career fair Munich
+    - tech meetup Munich
+    - KI Veranstaltung München
+    - KI Meetup München
+    - Künstliche Intelligenz Vortrag München
+    - KI Workshop München
+    - KI Konferenz München
+    - Hackathon München
+    - Maschinelles Lernen Vortrag München
+    - Data Science Veranstaltung München
+    - Startup Veranstaltung München
+    - Gründer Event München
+    - Karrieremesse München Informatik
+    - KI Ringvorlesung München
+    - KI Symposium München
+    - Tech Event Garching
+    - KI Netzwerktreffen München
+    - Robotik KI Vortrag München
+  exclude_domains: [linkedin.com, facebook.com, instagram.com, x.com, twitter.com, youtube.com,
+                    tiktok.com, reddit.com, wikipedia.org, xing.com, indeed.com, stepstone.de,
+                    glassdoor.com, glassdoor.de, typeform.com, tally.so, forms.gle,
+                    docs.google.com]

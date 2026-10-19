@@ -32,6 +32,30 @@ class Intakes(Repository):
                 (IntakeKind.EVENT, url, starts_on, place, stamp, stamp),
             ).fetchone()["id"]
 
+    def propose(self, kind: IntakeKind, url: str, events_url: str | None, found_by: str) -> int:
+        """An intake waiting for an admin's review, which the web search found (ADR 0016);
+        `found_by` is its first log line."""
+        stamp = now_iso()
+        entry = {"at": stamp, "step": "search", "text": found_by, "level": "info"}
+        with self.database.tx() as db:
+            return db.execute(
+                "INSERT INTO intake (kind, url, events_url, state, log, created_at, updated_at)"
+                " VALUES (%s, %s, %s, %s, %s, %s, %s) RETURNING id",
+                (kind, url, events_url, IntakeState.REVIEW, Jsonb([entry]), stamp, stamp),
+            ).fetchone()["id"]
+
+    def proposed_today(self) -> int:
+        """How many intakes the web search proposed since the UTC day began."""
+        with self.database.tx() as db:
+            return db.execute(
+                "SELECT count(*) AS n FROM intake WHERE log -> 0 ->> 'step' = 'search'"
+                " AND created_at >= date_trunc('day', now() AT TIME ZONE 'UTC') AT TIME ZONE 'UTC'"
+            ).fetchone()["n"]
+
+    def all(self) -> list[dict]:
+        with self.database.tx() as db:
+            return db.execute("SELECT id, kind, url, state FROM intake ORDER BY id").fetchall()
+
     def get(self, intake_id: int) -> dict | None:
         with self.database.tx() as db:
             return db.execute("SELECT * FROM intake WHERE id = %s", (intake_id,)).fetchone()

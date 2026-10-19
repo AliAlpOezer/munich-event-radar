@@ -66,6 +66,12 @@ def replay(settings: config.Settings, args: argparse.Namespace) -> None:
     raise SystemExit(0 if report["pass"] else 1)
 
 
+def search(settings: config.Settings, args: argparse.Namespace) -> None:
+    summary = jobs.search_web(settings, args.dry_run)
+    print(json.dumps(summary, indent=1, ensure_ascii=False))
+    raise SystemExit(1 if summary.get("failed") else 0)
+
+
 def import_sqlite(settings: config.Settings, args: argparse.Namespace) -> None:
     print(json.dumps(sqlite_import.run(Store(settings.database_url), args.path)))
 
@@ -88,6 +94,13 @@ def _parser() -> argparse.ArgumentParser:
         (replay, "score the golden events from the saved pages"),
     ):
         commands.add_parser(command.__name__, help=help_text).set_defaults(run=command)
+    finder = commands.add_parser(
+        "search", help="search the web for events and organisers, for an admin's review"
+    )
+    finder.add_argument(
+        "--dry-run", action="store_true", help="print each hit's verdict and propose nothing"
+    )
+    finder.set_defaults(run=search)
     move = commands.add_parser("import-sqlite", help="copy a SQLite store into an empty one")
     move.add_argument("path", type=Path)
     move.set_defaults(run=import_sqlite)

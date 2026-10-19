@@ -7,7 +7,7 @@ from datetime import UTC, datetime, timedelta
 import httpx
 import yaml
 
-from . import config, render
+from . import config, render, search
 from .extract import Extractor
 from .extract.router import Router
 from .fetch import Fetcher
@@ -15,6 +15,7 @@ from .harvester import Harvester, cadence_hours
 from .intake.service import IntakeService
 from .model import RunOutcome
 from .profile import Profile
+from .search.tavily import Tavily
 from .store import Store
 
 # The LLM queue takes no new job this long after a harvest starts, so judging always runs
@@ -91,6 +92,16 @@ def harvest(settings: config.Settings) -> dict:
     store.runs.finish(run_id, RunOutcome.OK, dict(counts))
     _ping(settings, "", dict(counts))
     return dict(counts)
+
+
+def search_web(settings: config.Settings, dry_run: bool = False) -> dict:
+    """ADR 0016: the day's web search; candidates the radar does not know wait for review."""
+    if not settings.tavily_key:
+        raise SystemExit("TAVILY_API_KEY is not set")
+    profile = _profile(settings)
+    tavily = Tavily(settings.tavily_key, profile.search.exclude_domains)
+    store = Store(settings.database_url)
+    return search.run(store, profile, tavily, datetime.now(UTC).date(), dry_run)
 
 
 def browse(settings: config.Settings) -> dict:

@@ -1,5 +1,5 @@
 """The relevance profile, `profile.yaml` (ADR 0002 D6): what counts as Munich, AI and each
-kind of event, and how intake recognises event and about pages."""
+kind of event, how intake recognises event and about pages, and what the web search asks."""
 
 import re
 from dataclasses import dataclass
@@ -27,6 +27,16 @@ class Online:
 
 
 @dataclass(frozen=True)
+class Search:
+    """The daily web search (ADR 0016)."""
+
+    queries: tuple[str, ...]
+    exclude_domains: tuple[str, ...]
+    daily_cap: int  # searches a UTC day, one credit each
+    daily_candidates: int  # new intakes in review a UTC day
+
+
+@dataclass(frozen=True)
 class Profile:
     cities: frozenset[str]
     postal_codes: tuple[str, ...]
@@ -41,6 +51,7 @@ class Profile:
     online: Online
     link_signals: tuple[str, ...]
     about_signals: tuple[str, ...]
+    search: Search
 
     @classmethod
     def load(cls, path: Path) -> "Profile":
@@ -61,6 +72,12 @@ class Profile:
             online=Online(**{k: tuple(v) for k, v in raw["online"].items()}),
             link_signals=tuple(raw["intake"]["link_signals"]),
             about_signals=tuple(raw["intake"]["about_signals"]),
+            search=Search(
+                queries=tuple(raw["search"]["queries"]),
+                exclude_domains=tuple(raw["search"]["exclude_domains"]),
+                daily_cap=int(raw["search"]["daily_cap"]),
+                daily_candidates=int(raw["search"]["daily_candidates"]),
+            ),
         )
 
     def source_class(self, url: str) -> SourceClass:
