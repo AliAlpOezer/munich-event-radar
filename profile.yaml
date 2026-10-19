@@ -12,7 +12,8 @@ munich:
 # Hosts whose pages list other organisers' events (AGG). Ticket platforms are TICKET;
 # everything else is the organiser's own page (OWN).
 aggregators: [messen.de, munich-startup.de, dealroom.co, brainberg.eu, eventbrite.com/d/,
-              allevents.in, 10times.com]
+              allevents.in, 10times.com, luma.com/discover, dev.events, conferenceindex.org,
+              techmeetups.com, kommunity.com, eventmatch.co]
 
 # Kinds that make a free, in-person, AI-relevant event A. Everything else free is B.
 # Assumption (D6): free hackathons and programmes with an application window are A.
@@ -105,7 +106,8 @@ intake:
 # https://docs.tavily.com/documentation/api-credits). A hit needs an AI or scope word and a
 # Munich place in its title, snippet or URL, and at most `daily_candidates` wait for review
 # a day. Excluded sites never hold an organiser's own events page; the form services are
-# registration pages, not events.
+# registration pages, not events. The news sites, job boards and listings added after the
+# first dry run (2026-10-19: 25 searches, 104 unknown candidates) were its noise.
 search:
   daily_cap: 25
   daily_candidates: 5
@@ -153,4 +155,5 @@ search:
   exclude_domains: [linkedin.com, facebook.com, instagram.com, x.com, twitter.com, youtube.com,
                     tiktok.com, reddit.com, wikipedia.org, xing.com, indeed.com, stepstone.de,
                     glassdoor.com, glassdoor.de, typeform.com, tally.so, forms.gle,
-                    docs.google.com]
+                    docs.google.com, sueddeutsche.de, handelsblatt.com, faz.net, berufsstart.de,
+                    dev.to, medium.com]

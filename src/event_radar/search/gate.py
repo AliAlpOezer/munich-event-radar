@@ -57,6 +57,8 @@ def candidate(hit: Hit, query: str, profile: Profile, judge: Judge) -> Candidate
     text = f"{hit.title} {hit.snippet}"
     if not judge.names_scope(text):
         return "off_topic"
+    if judge.audience({"title": {"value": hit.title}})[0]:
+        return "audience"
     if not any(city in f"{text} {hit.url}".lower() for city in profile.cities):
         return "not_in_munich"
     found = (query, hit.title, hit.score)

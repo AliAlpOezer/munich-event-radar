@@ -36,6 +36,8 @@ def _hit(url: str, title: str = "AI Night Munich", snippet: str = "") -> gate.Hi
         ("https://www.linkedin.com/events/ai-night", "AI Night Munich", "excluded_site"),
         ("https://www.eventbrite.de/d/germany--munich/ai/", "AI events in Munich", "platform_page"),
         ("https://wine.example/tasting", "Wine tasting Munich", "off_topic"),
+        ("https://kinderuni.example/robots", "Kinder-Uni: Roboter und KI, München", "audience"),
+        ("https://luma.com/discover/munich/ai", "AI events in Munich", "aggregator"),
         ("https://ai.example/berlin", "AI meetup Berlin", "not_in_munich"),
         ("ftp://ai.example/munich", "AI Munich", "not_a_web_page"),
     ],
