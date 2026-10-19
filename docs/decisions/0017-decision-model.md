@@ -86,11 +86,11 @@ D1, D5 and D6 ask one question, "in scope", at three sites, so it is calibrated 
 
 | Component | Does | Changes when |
 |---|---|---|
-| `decide/jev.py` | sends one POST with httpx: versioned model ID, 5 s timeout, one retry on 429 honouring `retry-after`. After a timeout, Jev is skipped for the rest of the run | TypeSafe's API changes |
-| `decide/questions.py` | the catalogue: `in_scope`, `registration_stated`, `judgments`, `organisation`, `search_hit`. Each is a versioned function from the profile and a state to questions | what we ask changes |
+| `decide/systemone.py` | sends one POST of the System One protocol with httpx, which Jev, `laya.serve` and `kev.serve` all speak: versioned model ID, 5 s timeout, one retry on 429 honouring `retry-after`. After a timeout, the model is skipped for the rest of the run. Built for step 2: the POST and its timeout; the retry and the skip come with the `Decider` | the protocol changes |
+| `decide/questions.py` | the catalogue: `in_scope`, `registration`, `judgments`, `organisation`, `search_hit`. Each is a versioned function from the profile and a state to questions. Built for step 2: `in_scope-v1` (one noul per scope group and one for the any-topic kinds) and `registration-v1` (sign-up, window, price, places), and the passages, whose words live in `profile.yaml` `decisions.registration` | what we ask changes |
 | `Decider` (`decide/__init__.py`) | builds and trims the state (only what the question needs), reads and writes the cache, takes from the budget, applies bands, returns a `Decision` | banding policy changes |
 | `profile.yaml` `decisions:` | per decision: `mode` (off, shadow, on), `model`, `bands`. Also `daily_cap` and `audit` | a calibration report says so |
-| `event-radar calibrate` | offline and read-only: asks Jev about hosted page texts that already have LLM answers, and writes the report to a path given (the records repository) | the metrics change |
+| `event-radar calibrate` | offline and read-only: asks a model about hosted page texts that already have LLM answers, and writes `rows.jsonl` (URL, label, probabilities; no page text) and `summary.json` (AUROC, recall and skips per band, German and English apart, seconds, tokens) to `--out`. `--labels-only` counts the labels without a model. Run by the manual `calibrate` workflow, the model served on the runner's CPU | the metrics change |
 
 | Seam | Carrier | Contract | Failure |
 |---|---|---|---|
