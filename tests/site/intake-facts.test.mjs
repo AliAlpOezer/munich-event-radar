@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { label, pageName, recent, stepMarks, title } from "../../site/js/intake-facts.js";
+import { candidates, label, needsDay, pageName, recent, stepMarks, title } from "../../site/js/intake-facts.js";
 
 const DAY = 86400000;
 const intake = (fields = {}) => ({
@@ -69,4 +69,24 @@ test("the recent intakes of one kind are the open ones and those finished in the
   ];
   assert.deepEqual(recent(rows, "event", now).map((i) => i.id), [1, 2, 5, 6, 7]);
   assert.deepEqual(recent(rows, "organisation", now).map((i) => i.id), [4]);
+});
+
+const search = (fields = {}) => intake({ log: [{ step: "search", text: "Found", level: "info" }], state: "review", ...fields });
+
+test("the web search's candidates wait apart from the recent intakes", () => {
+  const waiting = [search({ url: "https://b.example/" }), search({ url: "https://a.example/" })];
+  const refused = search({ state: "rejected" });
+  const approved = search({ state: "queued" });
+  const all = [...waiting, refused, approved, intake()];
+  assert.deepEqual(candidates(all).map((i) => i.url), ["https://a.example/", "https://b.example/"]);
+  assert.deepEqual(recent(all, "organisation"), [approved, all[4]]);
+  const lostCheck = search({ state: "rejected", log: logged("search", "checking") });
+  assert.deepEqual(recent([lostCheck], "organisation"), [lostCheck]);
+});
+
+test("a found event waits for its day and place until an admin gives them", () => {
+  assert.equal(needsDay(event({ state: "review", log: logged("search") })), true);
+  assert.equal(needsDay(event({ state: "rejected", log: logged("search") })), true);
+  assert.equal(needsDay(event({ state: "rejected", starts_on: "2026-11-05" })), false);
+  assert.equal(needsDay(intake({ state: "review" })), false);
 });

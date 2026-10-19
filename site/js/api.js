@@ -40,7 +40,8 @@ export const setStatus = (key, status) => read(client.rpc("set_status", { event_
 export const setStar = (key, starred) => read(client.rpc("set_star", { event_key: key, starred }));
 export const suggest = ({ url, eventsUrl, name }) =>
   read(client.rpc("suggest_organisation", { url, events_url: eventsUrl || null, name: name || null }));
-export const decide = (id, approve) => read(client.rpc("decide_intake", { intake_id: id, approve }));
+export const decide = (id, approve, day = null, place = null) =>
+  read(client.rpc("decide_intake", { intake_id: id, approve, starts_on: day, place }));
 export const addEvent = ({ url, day, place }) => read(client.rpc("suggest_event", { url, starts_on: day, place }));
 /* Admins only. */
 export const removeEvent = (id) => read(client.rpc("remove_event", { intake_id: id }));

@@ -1,6 +1,6 @@
 /* What an intake row from api.intakes means: its name, its state in words, and how far it
    got. An organisation's intake (ADR 0003) and an added event's (ADR 0014) have their own
-   steps. */
+   steps; either kind can come from the daily web search (ADR 0016). */
 
 const DAY_MS = 86400000;
 export const STEPS = {
@@ -29,6 +29,16 @@ const kindOf = (intake) => (isEvent(intake) ? "event" : "organisation");
 /* A suggestion in review either waits for an admin before any fetch, or stopped after the
    check could not confirm the organisation. */
 export const checked = (intake) => intake.log.some((entry) => entry.step === "checking");
+
+/* An intake the daily web search proposed: its first log line says so. */
+export const found = (intake) => intake.log[0]?.step === "search";
+
+/* A found event that waits for its day and place, which an admin gives to approve it. */
+export const needsDay = (intake) => isEvent(intake) && !intake.starts_on && (intake.state === "review" || intake.state === "rejected");
+
+/* The search's candidates waiting for an admin, oldest first; an admin's refusal ends them. */
+export const candidates = (intakes) => intakes.filter((i) => found(i) && i.state === "review").reverse();
+const refused = (intake) => found(intake) && (intake.state === "review" || (intake.state === "rejected" && !checked(intake)));
 
 export function label(intake, admin = false) {
   if (intake.state === "review") return admin ? "Needs your decision" : "Waiting for review";
@@ -83,8 +93,8 @@ export function stepMarks(intake) {
 }
 
 /* One kind's intakes worth listing: the open ones, and those finished in the last three
-   days, newest first as the API returns them. */
+   days, newest first as the API returns them; not the search's candidates, listed apart. */
 export const recent = (intakes, kind, now = Date.now()) => intakes
-  .filter((i) => kindOf(i) === kind)
+  .filter((i) => kindOf(i) === kind && !refused(i))
   .filter((i) => !FINAL.has(i.state) || now - new Date(i.updated_at).getTime() < 3 * DAY_MS)
   .slice(0, 5);
