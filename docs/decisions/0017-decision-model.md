@@ -1,6 +1,6 @@
 # ADR 0017: Closed-answer decisions go to a decision model; the LLM keeps the quoted facts
 
-**Status:** PROPOSED. No paid Jev: a free open model first (wayfinder Q1, Alp 2026-10-19), `laya-multilingual` then Kev-0.8B (Q7), calibrated in Q2; no code yet
+**Status:** PROPOSED. No paid Jev: a free open model first (wayfinder Q1, Alp 2026-10-19), `laya-multilingual` then Kev-0.8B (Q7). Plan step 2 built; measured zero-shot in Q2, neither model earns a band (see Measured). No decision moves yet
 **Date:** 2026-10-19
 **Inputs:** Alp, 2026-10-19: "i have decided to think about using jev instead of llm calls,
 when we are deciding for events, organizations, etc. [...] where they could cut waiting &
@@ -127,6 +127,33 @@ ones.
 | An added event (ADR 0014) with structured data and no registration details | one LLM call, or a day's wait when the budget is spent | done in the same run |
 | A submitted organisation | about 1 min of profiling, then `review` when unsure | unchanged: every intake keeps its LLM profile (Q5, Alp 2026-10-19), so D4 saves nothing |
 | Spend | 0 | input tokens only. 89 + 49 requests at most about 3k tokens each (a page's text is at most 12,000 characters, the median 2,242, Q3) is at most about 0.4 M tokens, about $0.02 a day before caching (UNVERIFIED until Q2) |
+
+## Measured (Q2, 2026-10-19)
+
+`event-radar calibrate` on the hosted cache, both models zero-shot on a 4-core runner. The
+reference is the LLM: 69 triage verdicts (21 relevant), 165 pages for registration (65
+with a verified field, 98 of them D2's own pages, 48 of those with a field). Skips are the
+most a band could skip without losing one reference positive, fitted on the same pages, so
+optimistic.
+
+| | laya-multilingual 0.4.12 | Kev-0.8B (`v1.0`) |
+|---|---|---|
+| D1 in scope: AUROC | 0.535 | 0.922 |
+| D1: skips of 69 | 1 | 20 |
+| D2 passages: AUROC, all / D2's pages / German | 0.723 / 0.620 / 0.692 | 0.780 / 0.703 / 0.556 |
+| D2 passages: skips of D2's 98 pages | 2 | 5 |
+| D2 whole text: AUROC, all / D2's pages / German | 0.640 / 0.602 / 0.684 | 0.689 / 0.633 / 0.444 |
+| D2 whole text: skips of D2's 98 pages | 9 | 0 |
+| Seconds per page, median: D1 / passages / whole text | 0.8 / 1.0 / 3.3 | 3.4 / 2.6 / 4.6 |
+
+- Laya is near chance on D1, as its README expects of a base checkpoint.
+- Kev agrees with the LLM on D1, but the triage asks 20 candidates in one call, so 20 skips
+  of 69 save about one call a day. A D1 that keeps every page it is unsure of would add
+  extractions: the LLM triage skips 48 of 69.
+- On D2's own pages neither model skips more than 5 of 98, so D2 saves next to nothing.
+- Passages beat the whole text for both models, at less time per page (D6 holds).
+- With 21 and 65 positives, no band could show the 0.98 or 0.97 recall target in any case
+  (rule of three: misses below about 14% and 4.6%). German has 2 and 9 positives.
 
 ## Plan
 

@@ -31,7 +31,9 @@ from .systemone import SystemOne
 # The recall of the costly side each decision must keep (to confirm with Alp): pages the
 # LLM triage kept (D1), pages with a verified registration field (D2).
 TARGETS = {questions.IN_SCOPE: 0.98, questions.REGISTRATION: 0.97}
-LOWS = (0.01, 0.02, 0.05, 0.1, 0.15, 0.2, 0.3, 0.4, 0.5)
+# Up to 0.95: a model with a soft fitted temperature, such as Kev-0.8B, puts the pages it
+# answers no about near 0.5, not near 0 (first runs, 2026-10-19).
+LOWS = (0.01, 0.02, 0.05, *(round(0.05 * i, 2) for i in range(2, 20)))
 _GERMAN = re.compile(r"\b(der|die|das|und|mit|für|von|zur|zum|ist|nicht|eine?)\b")
 _ENGLISH = re.compile(r"\b(the|and|with|for|of|is|not|an?|to|this)\b")
 _REGISTRATION = {f for fields in questions.REGISTRATION_FIELDS.values() for f in fields}
