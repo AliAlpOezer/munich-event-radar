@@ -104,7 +104,21 @@ class Judge:
             return Verdict(None, (), "outside_munich")
         return None
 
-    def judge(self, fields: dict, now: datetime, *, ai_focus: bool, startup_focus: bool) -> Verdict:
+    def judge(
+        self, fields: dict, now: datetime, *, ai_focus: bool, startup_focus: bool, stars: int = 0
+    ) -> Verdict:
+        verdict = self._by_rules(fields, now, ai_focus=ai_focus, startup_focus=startup_focus)
+        if verdict.tier is None:
+            return verdict
+        # Stars lift a tier (ADR 0015). Tiers are letters, A the highest.
+        for count, tier in self.profile.star_tiers:
+            if stars >= count and tier < verdict.tier:
+                return Verdict(tier, verdict.reasons + (f"starred by {count} or more",))
+        return verdict
+
+    def _by_rules(
+        self, fields: dict, now: datetime, *, ai_focus: bool, startup_focus: bool
+    ) -> Verdict:
         audience, phrase = self.audience(fields)
         if audience:
             return Verdict(None, tuple(filter(None, (f"audience={audience}", phrase))), AUDIENCE)

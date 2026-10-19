@@ -65,6 +65,21 @@ class Events(Repository):
                 )
         return counts
 
+    def star_counts(self, groups: list[set[str]]) -> list[int]:
+        """For each set of aliases, the accounts that starred a stored event one of them
+        names: the stars of the event `save` merges those into (ADR 0015 D4)."""
+        with self.database.tx() as db:
+            rows = db.execute(
+                "SELECT g.n, count(DISTINCT s.user_id) AS stars"
+                " FROM jsonb_array_elements(%s) WITH ORDINALITY AS g (aliases, n)"
+                " CROSS JOIN jsonb_array_elements_text(g.aliases) AS a (alias)"
+                " JOIN event_alias ea ON ea.alias = a.alias"
+                " JOIN star s ON s.event_key = ea.event_key GROUP BY g.n",
+                (Jsonb([sorted(g) for g in groups]),),
+            ).fetchall()
+        stars = {r["n"]: r["stars"] for r in rows}
+        return [stars.get(n, 0) for n in range(1, len(groups) + 1)]
+
     def known(self, aliases: set[str]) -> dict | None:
         """The oldest stored event one of `aliases` names."""
         with self.database.tx() as db:

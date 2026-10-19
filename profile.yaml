@@ -24,6 +24,12 @@ a_kinds: [career_fair, conference, symposium, flagship_lecture, hackathon, progr
 # assumption. TUM's central listing is hackaTUM's only dated source until the LLM runs.
 any_topic_kinds: [career_fair, hackathon]
 
+# Stars lift a tier (ADR 0015): an event that at least this many accounts starred is at
+# least this tier. Absolute counts, Alp's choice of 2026-10-19. A drop stays a drop.
+stars:
+  A: 10
+  B: 5
+
 # Keywords match the words of an event's title, description and organiser, lowercased and
 # with punctuation read as a space, so "AI," and "(AI)" count and "aims" does not. Write them
 # without punctuation; a leading or trailing space makes a word start or end there (" job"

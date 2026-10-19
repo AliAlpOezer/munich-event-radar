@@ -17,6 +17,7 @@ from event_radar.extract.router import Model, Provider, Router
 from event_radar.fetch import Fetcher
 from event_radar.harvester import Harvester
 from event_radar.intake.service import IntakeService
+from event_radar.model import JudgedEvent, Verdict
 
 DISPATCH_URL = "https://api.github.com/repos/owner/repo/actions/workflows/intake.yml/dispatches"
 
@@ -496,3 +497,39 @@ def test_a_page_without_an_organiser_read_as_several_events_keeps_none(store, pr
     )
     assert seen == [("tracked", "Talk on 12 November"), ("tracked", "Talk on 5 November")]
     assert set(_states(store).values()) == {"done"} and harvester.counts["llm_several"] == 1
+
+
+def _star(store, key: str, accounts: list) -> None:
+    with store.tx() as db:
+        db.cursor().executemany(
+            "INSERT INTO star (user_id, event_key) VALUES (%s, %s)", [(a, key) for a in accounts]
+        )
+
+
+def test_stars_on_events_that_merge_count_each_account_once(store, users):
+    # ADR 0015 D4: every stored event the aliases name, counted as `Events.save` merges them.
+    store.events.save(
+        [JudgedEvent({alias}, {}, "url", Verdict("C", ()), []) for alias in ("obs:a", "obs:b")]
+    )
+    with store.tx() as db:
+        rows = db.execute("SELECT alias, event_key FROM event_alias").fetchall()
+    keys = {r["alias"]: r["event_key"] for r in rows}
+    accounts = [users() for _ in range(4)]
+    _star(store, keys["obs:a"], accounts[:3])
+    _star(store, keys["obs:b"], accounts)
+    assert store.events.star_counts([{"obs:a", "obs:b"}, {"obs:a"}, {"obs:c"}]) == [4, 3, 0]
+
+
+def test_an_event_with_five_stars_rises_to_b_at_the_next_judging(store, profile, users):
+    pages = {"/events/pitch": lambda: _event("Startup pitch night", "2030-11-05T18:00:00+01:00")}
+    harvester, _ = _site(store, profile, pages)
+    harvester.harvest_due()
+    harvester.judge_events()
+    [event] = store.events.all()
+    assert event["tier"] == "C"
+    _star(store, event["key"], [users() for _ in range(5)])
+    harvester.judge_events()
+    [event] = store.events.all()
+    assert event["tier"] == "B" and event["tier_reasons"][-1] == "starred by 5 or more"
+    with store.tx() as db:
+        assert db.execute("SELECT cadence_hours FROM source").fetchone()["cadence_hours"] == 24

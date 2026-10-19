@@ -195,13 +195,16 @@ class Harvester:
             focused = self.store.sources.focused_urls()
             startups = self.store.sources.startup_urls()
             judged = []
-            for group in resolve(self.store.observations.all()):
+            groups = resolve(self.store.observations.all())
+            stars = self.store.events.star_counts([g.aliases for g in groups])
+            for group, starred in zip(groups, stars, strict=True):
                 urls = {o.url for o in group.observations}
                 verdict = self.judge.judge(
                     group.fields,
                     now,
                     ai_focus=bool(urls & focused),
                     startup_focus=bool(urls & startups),
+                    stars=starred,
                 )
                 judged.append(
                     JudgedEvent(
