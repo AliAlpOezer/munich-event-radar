@@ -283,12 +283,13 @@ def test_seed_reimport_applies_ai_focus_and_migrations_run_once(store):
 JUDGE = Judge(Profile.load(REPO / "profile.yaml"))
 
 
-def verdict(ai_focus=True, startup_focus=False, **fields):
+def verdict(ai_focus=True, startup_focus=False, stars=0, **fields):
     return JUDGE.judge(
         {k: {"value": v} for k, v in fields.items()},
         NOW,
         ai_focus=ai_focus,
         startup_focus=startup_focus,
+        stars=stars,
     )
 
 
@@ -370,6 +371,24 @@ def test_coding_and_developer_events_are_in_scope():
     assert verdict(ai_focus=False, title="Munich Developer Meetup").tier == "C"
     assert verdict(ai_focus=False, title="Software Engineering Night").tier == "C"
     assert verdict(ai_focus=False, title="Video encoding night").drop_reason == "off_topic"
+
+
+def test_stars_lift_a_tier_from_five_and_ten_but_never_lower_or_lift_a_drop():
+    # ADR 0015: 5 stars make an event at least B, 10 make it A; the count stays private.
+    paid = {"title": "AI conference", "price": "paid"}
+    assert verdict(stars=4, **paid).tier == "C"
+    five = verdict(stars=5, **paid)
+    assert five.tier == "B" and five.reasons[-2:] == ("paid, no free route", "starred by 5 or more")
+    assert verdict(stars=9, title="Monthly meetup #29").tier == "B"
+    assert verdict(stars=10, **paid).tier == "A"
+    ten = verdict(stars=10, title="Monthly meetup #29")
+    assert ten.tier == "A" and ten.reasons[-1] == "starred by 10 or more"
+    fair = verdict(stars=10, title="Career Fair AI")
+    assert fair.tier == "A" and not any("starred" in r for r in fair.reasons)
+    assert verdict(stars=5, title="AI meetup").reasons == verdict(title="AI meetup").reasons
+    for facts in ({"starts_at": "2026-10-01"}, {"attendance": "online"}, {"city": "Berlin"}):
+        assert verdict(stars=10, title="AI talk", **facts).tier is None
+    assert verdict(stars=10, ai_focus=False, title="TUM tanzt!").drop_reason == "off_topic"
 
 
 def test_events_for_children_pupils_or_families_leave_the_board_whatever_their_topic():

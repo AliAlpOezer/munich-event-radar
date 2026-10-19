@@ -7,7 +7,7 @@ from pathlib import Path
 
 import yaml
 
-from .model import SourceClass
+from .model import SourceClass, Tier
 from .platforms import is_ticket_host
 
 
@@ -33,6 +33,7 @@ class Profile:
     aggregators: tuple[str, ...]
     a_kinds: frozenset[str]
     any_topic_kinds: frozenset[str]
+    star_tiers: tuple[tuple[int, str], ...]
     ai_keywords: tuple[str, ...]
     kind_keywords: dict[str, tuple[str, ...]]
     scope_keywords: tuple[str, ...]
@@ -50,6 +51,9 @@ class Profile:
             aggregators=tuple(raw["aggregators"]),
             a_kinds=frozenset(raw["a_kinds"]),
             any_topic_kinds=frozenset(raw["any_topic_kinds"]),
+            star_tiers=tuple(
+                sorted(((n, Tier(t).value) for t, n in raw["stars"].items()), reverse=True)
+            ),
             ai_keywords=_keywords(raw["keywords"]["ai"]),
             kind_keywords={k: _keywords(v) for k, v in raw["keywords"]["kinds"].items()},
             scope_keywords=_keywords([w for words in raw["scope"].values() for w in words]),
