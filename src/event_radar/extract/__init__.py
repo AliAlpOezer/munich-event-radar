@@ -29,17 +29,15 @@ class Extractor:
     def extract(self, url: str, body: bytes, event_page: bool) -> tuple[str, list[ParsedEvent]]:
         """The observation method and the events found; an event page lends its image."""
         text = html.text(body, url)
-        question = f"Page URL: {url}\n\nPage text:\n{text}"
-        key = hashlib.sha256(question.encode()).hexdigest()
-        cached = self.cache.extraction.cached(key, VERSION)
+        cached = self.cache.extraction.cached(key(url, text), VERSION)
         if cached is None or not conforms(cached["result"], SCHEMA):
             messages = [
                 {"role": "system", "content": SYSTEM.replace("TODAY", date.today().isoformat())},
-                {"role": "user", "content": question},
+                {"role": "user", "content": _question(url, text)},
             ]
             model, result = self.router.complete(messages, SCHEMA)
             cached = {"model": model, "result": result}
-            self.cache.extraction.cache(key, VERSION, model, cached)
+            self.cache.extraction.cache(key(url, text), VERSION, model, cached)
         events = []
         for raw in cached["result"].get("events") or []:
             event, _ = verify(raw, text)
@@ -76,6 +74,15 @@ class Extractor:
                     )
                 verdicts[key] = answered.get(i, True)
         return verdicts
+
+
+def _question(url: str, text: str) -> str:
+    return f"Page URL: {url}\n\nPage text:\n{text}"
+
+
+def key(url: str, text: str) -> str:
+    """The cache key of the extraction question about a page's text."""
+    return hashlib.sha256(_question(url, text).encode()).hexdigest()
 
 
 def _with_image(event: ParsedEvent, body: bytes, url: str) -> ParsedEvent:

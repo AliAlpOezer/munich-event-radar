@@ -40,6 +40,7 @@ The store is Postgres (ADR 0004). Tests need a local server and never read
 | Make a local login an admin | `RADAR_DATABASE_URL=postgresql://postgres@localhost/radar_dev event-radar grant-admin EMAIL` |
 | Score the golden set | `RADAR_FIXTURES_DIR=<frozen pages> event-radar replay` |
 | See what the web search would propose | `RADAR_DATABASE_URL=... TAVILY_API_KEY=... event-radar search --dry-run` (spends the day's searches, writes nothing) |
+| Count the pages a decision model can be measured on | `RADAR_DATABASE_URL=... event-radar calibrate --labels-only` (read-only) |
 
 ## The page
 
@@ -62,6 +63,7 @@ Every job runs on GitHub Actions; no machine of ours has to be on.
 | `browse` | Sundays 03:17 UTC | `event-radar browse`: renders JavaScript-only sources with Chromium |
 | `intake` | dispatched by Postgres when an intake is queued, and hourly | `event-radar intakes`: works the queue, then exits |
 | `search` | daily, 03:23 UTC | `event-radar search`: asks Tavily the day's queries; pages the radar does not know wait for an admin's review (ADR 0016) |
+| `calibrate` | manual | `event-radar calibrate`: serves a decision model on the runner's CPU and measures it against the LLM's cached answers, read-only; the result is a 7-day artifact (ADR 0017) |
 | `test` | every push and pull request | ruff and pytest against a Postgres 17 service, and the page's node tests |
 
 One-time setup:

@@ -1,0 +1,78 @@
+name: calibrate
+# ADR 0017 plan step 2: measure a decision model against the LLM's cached answers. Manual
+# only, and read-only on the database. The model serves the System One protocol on this
+# runner's CPU. The artifact holds URLs, labels and probabilities, never page text.
+on:
+  workflow_dispatch:
+    inputs:
+      model:
+        description: The decision model
+        type: choice
+        options: [laya-multilingual, kev-0.8b]
+      limit:
+        description: Pages per state, 0 for all
+        default: "0"
+concurrency:
+  group: calibrate
+  cancel-in-progress: false
+permissions:
+  contents: read
+jobs:
+  calibrate:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 330
+    env:
+      HF_HUB_DISABLE_TELEMETRY: "1"
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ./.github/actions/setup
+      # Each model in its own environment, so torch never enters the radar's.
+      - name: Serve laya-multilingual
+        if: inputs.model == 'laya-multilingual'
+        run: |
+          python -m venv ~/model
+          ~/model/bin/pip install --index-url https://download.pytorch.org/whl/cpu torch
+          ~/model/bin/pip install "laya[serve]==0.4.12"
+          ~/model/bin/pip freeze > ~/versions.txt
+          LAYA_HOST=127.0.0.1 LAYA_PORT=8000 LAYA_DEVICE=cpu LAYA_MODELS=multilingual \
+            nohup ~/model/bin/laya-serve > ~/server.log 2>&1 &
+          echo "MODEL_NAME=multilingual" >> "$GITHUB_ENV"
+          # The checkpoint reads 8,192 tokens, but cuts at 1,024 unless asked (its README).
+          echo "MODEL_OPTIONS=--option max_len=8192" >> "$GITHUB_ENV"
+      - name: Serve Kev-0.8B
+        if: inputs.model == 'kev-0.8b'
+        run: |
+          pip install uv==0.13.1
+          git init -q ~/kev
+          git -C ~/kev fetch -q --depth 1 https://github.com/jaredpalmer/kev \
+            1f04cfa28e6a708485b28a9585010b9e436b776e
+          git -C ~/kev checkout -q FETCH_HEAD
+          cd ~/kev && uv sync --extra serve && uv pip freeze > ~/versions.txt
+          KEV_DTYPE=fp32 nohup uv run --extra serve python -m kev.serve \
+            --run jaredpalmer/kev-0.8b@v1.0 --device cpu --port 8000 > ~/server.log 2>&1 &
+          echo "MODEL_NAME=kev-0.8b" >> "$GITHUB_ENV"
+          echo "MODEL_OPTIONS=" >> "$GITHUB_ENV"
+      - name: Wait for the model
+        run: |
+          probe='{"model": "'"$MODEL_NAME"'", "state": "A talk on machine learning.",
+            "questions": {"q": {"type": "noul", "instructions": "Is this about AI?"}}}'
+          for _ in $(seq 90); do
+            if curl -sf localhost:8000/v1/systemone -H 'content-type: application/json' \
+              -d "$probe"; then exit 0; fi
+            sleep 10
+          done
+          tail -50 ~/server.log
+          exit 1
+      - run: >-
+          event-radar calibrate --server http://127.0.0.1:8000 --model "$MODEL_NAME"
+          $MODEL_OPTIONS --limit "${{ inputs.limit }}" --out calibration
+        env:
+          RADAR_DATABASE_URL: ${{ secrets.RADAR_DATABASE_URL }}
+      - if: always()
+        run: mkdir -p calibration && cp ~/versions.txt calibration/ || true
+      - if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: calibration-${{ inputs.model }}
+          path: calibration/
+          retention-days: 7
