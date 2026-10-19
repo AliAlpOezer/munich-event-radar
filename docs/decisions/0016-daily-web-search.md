@@ -1,6 +1,6 @@
 # ADR 0016: A daily web search into the review queue
 
-**Status:** DECIDED, being built on branch `web-search`
+**Status:** DECIDED, built on branch `web-search`, not merged
 **Date:** 2026-10-19
 **Inputs:** Alp's idea (c) and answers of 2026-10-19: a daily web search through Tavily; a
 page the radar does not know goes to the admin review queue, never straight to the board;
@@ -22,10 +22,10 @@ it through the intake that already exists.
 | # | Never or always | Enforced by |
 |---|---|---|
 | 1 | Nothing a search finds is fetched, judged or shown on the board before an admin approves it | the search writes intake rows in `review` only; only `decide_intake` moves one to `queued`, and only `queued` dispatches the intake workflow |
-| 2 | A site or page the radar knows, or one an admin rejected or removed, is never proposed again | the suppression query runs in the same transaction as the insert, under one advisory lock, and counts intakes in every state |
+| 2 | A site or page the radar knows, or one an admin rejected or removed, is never proposed again | suppression and insert run under one advisory lock (`search`), and count intakes in every state |
 | 3 | The free plan is a ceiling: at most `search.daily_cap` searches a UTC day, no retry, no paid call | the `budget` ledger (provider `tavily`), taken before each request; 401, 429, 432 and 433 end the run's searching |
 | 4 | No third-party text is stored beyond a hit's URL and title | the snippet is read by the gate and dropped; the log entry names the query and the title |
-| 5 | The review list stays short: at most `search.daily_candidates` new rows a day | counted in the same transaction as the insert |
+| 5 | The review list stays short: at most `search.daily_candidates` new rows a day | counted under the same lock, from the rows whose first log line is the search's |
 
 ## Flow
 
@@ -99,3 +99,24 @@ https://docs.tavily.com/documentation/api-credits): 1 credit per basic search, t
   nothing; it calibrates the gate once the key exists.
 - Before the first run: Alp creates a Tavily key and adds the `TAVILY_API_KEY` Actions
   secret.
+
+## How it landed (2026-10-19)
+
+| Commit | What |
+|---|---|
+| db58783 | this decision |
+| c06c543 | migration 0005; `decide_intake(intake_id, approve, starts_on, place)`; `event_place` checks a day and place for it and `suggest_event`; a person adding a page the search proposed takes the candidate over |
+| 2b8525e | `event_radar/search/` (`gate.py`, `tavily.py`, `run`), `Intakes.propose`, `event-radar search [--dry-run]`, `profile.yaml` `search` (40 queries, 25 searches and 5 candidates a day), `search.yml` |
+| 8c4617b | the page: "Found by the web search", an admin-only list apart from the five recent intakes; a found event's review form asks for its day and place |
+
+Found while building: a platform organiser page stays the intake's URL (Meetup's
+`organiser_source` is the group's iCal feed, which the intake's homepage check refuses), a
+platform page that is neither an event nor an organiser page (an Eventbrite search page) is
+dropped, and the form services are excluded. A search candidate an admin rejects leaves the
+lists, as a candidate is the search's proposal and not a person's.
+
+Checks: pytest (18 in `test_search.py`, 2 in `test_access.py`), 21 node tests, ruff; the
+page with the local stand-in (`tools/devsite.py`) in Chromium at 1280 and 375 px, light and
+dark: no horizontal overflow, no console error besides the 400 of an approval without a day,
+whose message the form shows; approving with a day and a place queues the check. Not run:
+a real Tavily search (no key yet), so the gate is not calibrated on real results.

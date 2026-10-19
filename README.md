@@ -39,6 +39,7 @@ The store is Postgres (ADR 0004). Tests need a local server and never read
 | Run the page locally | `scoop install postgrest`, then `python tools/devsite.py` and open http://127.0.0.1:8010/ |
 | Make a local login an admin | `RADAR_DATABASE_URL=postgresql://postgres@localhost/radar_dev event-radar grant-admin EMAIL` |
 | Score the golden set | `RADAR_FIXTURES_DIR=<frozen pages> event-radar replay` |
+| See what the web search would propose | `RADAR_DATABASE_URL=... TAVILY_API_KEY=... event-radar search --dry-run` (spends the day's searches, writes nothing) |
 
 ## The page
 
@@ -60,13 +61,14 @@ Every job runs on GitHub Actions; no machine of ours has to be on.
 | `harvest` | daily, 04:17 UTC | `event-radar seed`, then `harvest`: fetch what is due, extract with OpenRouter (at most 60 min), judge |
 | `browse` | Sundays 03:17 UTC | `event-radar browse`: renders JavaScript-only sources with Chromium |
 | `intake` | dispatched by Postgres when an intake is queued, and hourly | `event-radar intakes`: works the queue, then exits |
+| `search` | daily, 03:23 UTC | `event-radar search`: asks Tavily the day's queries; pages the radar does not know wait for an admin's review (ADR 0016) |
 | `test` | every push and pull request | ruff and pytest against a Postgres 17 service, and the page's node tests |
 
 One-time setup:
 
 | Where | What |
 |---|---|
-| GitHub, Settings > Secrets > Actions | `RADAR_DATABASE_URL` (Supabase session pooler) and `OPENROUTER_API_KEY`; optionally `GROQ_API_KEY`, the fallback when OpenRouter is spent or down (ADR 0010) |
+| GitHub, Settings > Secrets > Actions | `RADAR_DATABASE_URL` (Supabase session pooler) and `OPENROUTER_API_KEY`; optionally `GROQ_API_KEY`, the fallback when OpenRouter is spent or down (ADR 0010); `TAVILY_API_KEY` for the web search (ADR 0016) |
 | GitHub, a fine-grained token | this repository only, Actions: read and write; it dispatches `intake.yml` |
 | Supabase, SQL editor | `select vault.create_secret('https://api.github.com/repos/<owner>/<repo>/actions/workflows/intake.yml/dispatches', 'intake_dispatch_url');` and `select vault.create_secret('<token>', 'intake_dispatch_token');` |
 
