@@ -157,3 +157,13 @@ search:
                     glassdoor.com, glassdoor.de, typeform.com, tally.so, forms.gle,
                     docs.google.com, sueddeutsche.de, handelsblatt.com, faz.net, berufsstart.de,
                     dev.to, medium.com]
+
+# Decisions a decision model may make instead of the LLM (ADR 0017). None is made yet; the
+# calibration (`event-radar calibrate`) measures first. Whether a page states registration
+# details is asked about the text around these words, not the whole page: one stood on every
+# page with a verified registration field once the stem was "regist", and 95 of 96 grounding
+# quotes lay within 300 characters of one (hosted pages, 2026-10-19).
+decisions:
+  registration:
+    words: [anmeld, regist, ticket, apply, bewerb, sign up, eintritt, kostenlos, free, "€"]
+    window: 300

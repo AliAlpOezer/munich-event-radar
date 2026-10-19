@@ -27,6 +27,15 @@ class Online:
 
 
 @dataclass(frozen=True)
+class Registration:
+    """What a decision model reads to tell whether a page states registration details
+    (ADR 0017 D2): the text within `window` characters of each word."""
+
+    words: tuple[str, ...]
+    window: int
+
+
+@dataclass(frozen=True)
 class Search:
     """The daily web search (ADR 0016)."""
 
@@ -47,11 +56,13 @@ class Profile:
     ai_keywords: tuple[str, ...]
     kind_keywords: dict[str, tuple[str, ...]]
     scope_keywords: tuple[str, ...]
+    scope_groups: dict[str, tuple[str, ...]]
     audiences: dict[str, tuple[str, ...]]
     online: Online
     link_signals: tuple[str, ...]
     about_signals: tuple[str, ...]
     search: Search
+    registration: Registration
 
     @classmethod
     def load(cls, path: Path) -> "Profile":
@@ -68,6 +79,7 @@ class Profile:
             ai_keywords=_keywords(raw["keywords"]["ai"]),
             kind_keywords={k: _keywords(v) for k, v in raw["keywords"]["kinds"].items()},
             scope_keywords=_keywords([w for words in raw["scope"].values() for w in words]),
+            scope_groups={k: _keywords(v) for k, v in raw["scope"].items()},
             audiences={k: tuple(v) for k, v in raw["audience"].items()},
             online=Online(**{k: tuple(v) for k, v in raw["online"].items()}),
             link_signals=tuple(raw["intake"]["link_signals"]),
@@ -77,6 +89,10 @@ class Profile:
                 exclude_domains=tuple(raw["search"]["exclude_domains"]),
                 daily_cap=int(raw["search"]["daily_cap"]),
                 daily_candidates=int(raw["search"]["daily_candidates"]),
+            ),
+            registration=Registration(
+                words=tuple(raw["decisions"]["registration"]["words"]),
+                window=int(raw["decisions"]["registration"]["window"]),
             ),
         )
 

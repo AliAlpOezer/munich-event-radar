@@ -3,10 +3,14 @@ import json
 from pathlib import Path
 
 from . import config, golden, jobs, sqlite_import
+from .decide import calibrate as decide_calibrate
+from .decide import questions
+from .decide.systemone import SystemOne
 from .extract import Extractor
 from .extract.router import Router, providers
 from .fetch import Fetcher
 from .model import field_value
+from .profile import Profile
 from .resolve import local_minute
 from .store import Store
 
@@ -72,6 +76,33 @@ def search(settings: config.Settings, args: argparse.Namespace) -> None:
     raise SystemExit(1 if summary.get("failed") else 0)
 
 
+def calibrate(settings: config.Settings, args: argparse.Namespace) -> None:
+    if not settings.database_url:
+        raise SystemExit("RADAR_DATABASE_URL is not set")
+    profile = Profile.load(settings.repo_dir / "profile.yaml")
+    if args.labels_only:
+        items = decide_calibrate.labelled(settings.database_url, profile)
+        print(json.dumps(decide_calibrate.census(items), indent=1))
+        return
+    if not args.server or not args.model:
+        raise SystemExit("--server and --model are needed unless --labels-only")
+    client = SystemOne(
+        args.server,
+        args.model,
+        timeout=args.timeout,
+        options={k: json.loads(v) for k, v in (o.split("=", 1) for o in args.option)},
+    )
+    summary = decide_calibrate.run(
+        settings.database_url,
+        profile,
+        client,
+        args.out,
+        args.decision or [questions.IN_SCOPE, questions.REGISTRATION],
+        args.limit,
+    )
+    print(json.dumps(summary, indent=1, ensure_ascii=False))
+
+
 def import_sqlite(settings: config.Settings, args: argparse.Namespace) -> None:
     print(json.dumps(sqlite_import.run(Store(settings.database_url), args.path)))
 
@@ -101,6 +132,32 @@ def _parser() -> argparse.ArgumentParser:
         "--dry-run", action="store_true", help="print each hit's verdict and propose nothing"
     )
     finder.set_defaults(run=search)
+    measure = commands.add_parser(
+        "calibrate",
+        help="measure a decision model against the LLM's cached answers (read-only)",
+    )
+    measure.add_argument("--server", help="the model server, such as http://127.0.0.1:8000")
+    measure.add_argument("--model", help="the model name the server is sent")
+    measure.add_argument(
+        "--option",
+        action="append",
+        default=[],
+        metavar="NAME=JSON",
+        help="a field sent in every request, such as max_len=8192 (repeatable)",
+    )
+    measure.add_argument(
+        "--decision",
+        action="append",
+        choices=[questions.IN_SCOPE, questions.REGISTRATION],
+        help="the decisions to measure (repeatable; default all)",
+    )
+    measure.add_argument("--limit", type=int, help="ask about the first N pages of each state")
+    measure.add_argument("--timeout", type=float, default=300.0, help="seconds per request")
+    measure.add_argument("--out", type=Path, default=Path("calibration"))
+    measure.add_argument(
+        "--labels-only", action="store_true", help="count the labelled pages, ask nothing"
+    )
+    measure.set_defaults(run=calibrate)
     move = commands.add_parser("import-sqlite", help="copy a SQLite store into an empty one")
     move.add_argument("path", type=Path)
     move.set_defaults(run=import_sqlite)
