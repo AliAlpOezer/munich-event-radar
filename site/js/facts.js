@@ -24,12 +24,14 @@ export const val = (ev, name) => ev.fields?.[name]?.value ?? null;
 
 export const startOf = (ev) => munich(val(ev, "starts_at"));
 const lastDayOf = (ev) => (munich(val(ev, "ends_at")) || startOf(ev))?.day ?? null;
-export const isDropped = (ev) => Boolean(ev.drop_reason && ev.drop_reason !== "past");
 export function isPast(ev) {
   if (ev.drop_reason === "past") return true;
   const last = lastDayOf(ev);
   return last ? last < today() : false;
 }
+/* Past comes before the other drops, as in the judge. An event its source stopped listing
+   is not judged again, so it keeps the drop reason it had before its day passed. */
+export const isDropped = (ev) => Boolean(ev.drop_reason && ev.drop_reason !== "past") && !isPast(ev);
 export const isUpcoming = (ev) => !isPast(ev) && !isDropped(ev);
 
 /* The day an event is listed under: an event that started earlier and still runs is listed today. */
