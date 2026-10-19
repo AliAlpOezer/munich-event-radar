@@ -168,18 +168,45 @@ BEGIN
 END
 $$;
 
-CREATE FUNCTION decide_intake(intake_id bigint, approve boolean) RETURNS text
+-- The day and the place an event intake is checked against (ADR 0014): a day not yet past
+-- and a place in under 200 characters. Returns the place, trimmed.
+CREATE FUNCTION event_place(starts_on date, place text) RETURNS text
+LANGUAGE plpgsql STABLE SET search_path FROM CURRENT AS $$
+DECLARE
+    spot text := nullif(btrim(place), '');
+BEGIN
+    IF starts_on IS NULL OR starts_on < (now() AT TIME ZONE 'Europe/Berlin')::date THEN
+        RAISE EXCEPTION 'Give the day of an event that has not happened yet'
+            USING ERRCODE = 'invalid_parameter_value';
+    END IF;
+    IF spot IS NULL OR length(spot) > 200 THEN
+        RAISE EXCEPTION 'Give the place, such as the venue or the city, in under 200 characters'
+            USING ERRCODE = 'invalid_parameter_value';
+    END IF;
+    RETURN spot;
+END
+$$;
+
+-- An admin approves or rejects an intake in review, or adds a rejected one anyway. An event
+-- the web search found has no day and place yet (ADR 0016): approving it needs both.
+CREATE FUNCTION decide_intake(intake_id bigint, approve boolean, starts_on date DEFAULT NULL,
+    place text DEFAULT NULL) RETURNS text
 LANGUAGE plpgsql SECURITY DEFINER SET search_path FROM CURRENT AS $$
 #variable_conflict use_column
 DECLARE
     current_state text;
+    current_kind text;
+    stored_day date;
+    day date;
+    spot text;
     next_state text := CASE WHEN decide_intake.approve THEN 'queued' ELSE 'rejected' END;
 BEGIN
     IF NOT is_admin() THEN
         RAISE EXCEPTION 'Only an admin can decide on a suggestion'
             USING ERRCODE = 'insufficient_privilege';
     END IF;
-    SELECT state INTO current_state FROM intake WHERE id = decide_intake.intake_id FOR UPDATE;
+    SELECT state, kind, starts_on INTO current_state, current_kind, stored_day
+    FROM intake WHERE id = decide_intake.intake_id FOR UPDATE;
     IF NOT FOUND THEN
         RAISE EXCEPTION 'No intake with this id' USING ERRCODE = 'no_data_found';
     END IF;
@@ -187,9 +214,17 @@ BEGIN
         RAISE EXCEPTION 'An intake in state % cannot be decided', current_state
             USING ERRCODE = 'object_not_in_prerequisite_state';
     END IF;
+    IF decide_intake.approve AND current_kind = 'event' AND (stored_day IS NULL
+        OR decide_intake.starts_on IS NOT NULL OR decide_intake.place IS NOT NULL)
+    THEN
+        spot := event_place(decide_intake.starts_on, decide_intake.place);
+        day := decide_intake.starts_on;
+    END IF;
     UPDATE intake SET
         state = next_state,
         approved = decide_intake.approve,
+        starts_on = COALESCE(day, starts_on),
+        place = COALESCE(spot, place),
         updated_at = now(),
         log = log || intake_log_entry('review',
             CASE WHEN decide_intake.approve THEN 'Approved by an admin.'
@@ -211,8 +246,9 @@ DECLARE
     uid uuid := auth.uid();
     by_admin boolean := is_admin();
     page text := btrim(suggest_event.url);
-    spot text := nullif(btrim(suggest_event.place), '');
+    spot text;
     taken text;
+    waiting_id bigint;
     open_count integer;
     day_count integer;
     new_id bigint;
@@ -224,18 +260,9 @@ BEGIN
         RAISE EXCEPTION 'Give the event''s web address, starting with http:// or https://'
             USING ERRCODE = 'invalid_parameter_value';
     END IF;
-    IF suggest_event.starts_on IS NULL
-        OR suggest_event.starts_on < (now() AT TIME ZONE 'Europe/Berlin')::date
-    THEN
-        RAISE EXCEPTION 'Give the day of an event that has not happened yet'
-            USING ERRCODE = 'invalid_parameter_value';
-    END IF;
-    IF spot IS NULL OR length(spot) > 200 THEN
-        RAISE EXCEPTION 'Give the place, such as the venue or the city, in under 200 characters'
-            USING ERRCODE = 'invalid_parameter_value';
-    END IF;
+    spot := event_place(suggest_event.starts_on, suggest_event.place);
     PERFORM pg_advisory_xact_lock(hashtext('event-intake ' || canonical_url(page)));
-    SELECT state INTO taken FROM intake
+    SELECT id, state INTO waiting_id, taken FROM intake
     WHERE kind = 'event' AND canonical_url(intake.url) = canonical_url(page)
         AND state NOT IN ('rejected', 'failed') AND (state <> 'removed' OR NOT by_admin)
     ORDER BY state = 'removed' DESC
@@ -245,7 +272,7 @@ BEGIN
             USING ERRCODE = 'insufficient_privilege';
     ELSIF taken = 'done' THEN
         RAISE EXCEPTION 'This event was added already' USING ERRCODE = 'unique_violation';
-    ELSIF taken IS NOT NULL THEN
+    ELSIF taken IS NOT NULL AND taken <> 'review' THEN
         RAISE EXCEPTION 'This event is being checked already' USING ERRCODE = 'unique_violation';
     END IF;
     IF NOT by_admin THEN
@@ -262,6 +289,19 @@ BEGIN
             RAISE EXCEPTION 'You added 10 events in the last day; try again tomorrow'
                 USING ERRCODE = 'program_limit_exceeded';
         END IF;
+    END IF;
+    -- A page the web search found and an admin has not decided on yet is the person's now.
+    IF taken = 'review' THEN
+        UPDATE intake SET
+            starts_on = suggest_event.starts_on,
+            place = spot,
+            state = 'queued',
+            submitted_by = uid,
+            updated_at = now(),
+            log = log || intake_log_entry('review', 'Added by a person, with its day and place.',
+                'ok')
+        WHERE id = waiting_id;
+        RETURN waiting_id;
     END IF;
     INSERT INTO intake (kind, url, starts_on, place, state, submitted_by, created_at, updated_at)
     VALUES ('event', page, suggest_event.starts_on, spot, 'queued', uid, now(), now())
@@ -320,5 +360,5 @@ GRANT SELECT ON events, organisers TO anon, authenticated;
 GRANT SELECT ON runs, intakes TO authenticated;
 GRANT EXECUTE ON FUNCTION me(), board_status() TO anon, authenticated;
 GRANT EXECUTE ON FUNCTION set_status(text, text), set_star(text, boolean),
-    suggest_organisation(text, text, text), decide_intake(bigint, boolean),
+    suggest_organisation(text, text, text), decide_intake(bigint, boolean, date, text),
     suggest_event(text, date, text), remove_event(bigint) TO authenticated;
