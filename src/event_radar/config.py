@@ -18,6 +18,7 @@ class Settings:
     llm_daily_cap: int
     groq_key: str | None
     groq_daily_cap: int
+    tavily_key: str | None
     healthcheck_url: str | None
 
 
@@ -42,5 +43,6 @@ def load() -> Settings:
         llm_daily_cap=int(os.environ.get("RADAR_LLM_DAILY_CAP", "35")),
         groq_key=os.environ.get("GROQ_API_KEY") or None,
         groq_daily_cap=int(os.environ.get("RADAR_GROQ_DAILY_CAP", "30")),
+        tavily_key=os.environ.get("TAVILY_API_KEY") or None,
         healthcheck_url=os.environ.get("HEALTHCHECK_URL"),
     )

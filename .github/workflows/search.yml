@@ -1,0 +1,27 @@
+name: search
+on:
+  # Once a day (ADR 0016), off the full hour; the Tavily budget's day is UTC.
+  schedule:
+    - cron: "23 3 * * *"
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: Print each hit's verdict and propose nothing (still spends the searches)
+        type: boolean
+        default: false
+concurrency:
+  group: search
+  cancel-in-progress: false
+permissions:
+  contents: read
+jobs:
+  search:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ./.github/actions/setup
+      - run: event-radar search ${{ inputs.dry_run && '--dry-run' || '' }}
+        env:
+          RADAR_DATABASE_URL: ${{ secrets.RADAR_DATABASE_URL }}
+          TAVILY_API_KEY: ${{ secrets.TAVILY_API_KEY }}

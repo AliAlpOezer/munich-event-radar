@@ -9,7 +9,9 @@ import * as board from "./board.js";
 import { $, esc, skeleton } from "./dom.js";
 import { fillDrawer, isOpen, setHeading, showDrawer } from "./drawer.js";
 import { DROP_LABEL, TIER_MEANING, TIERS } from "./facts.js";
-import { FINAL, STEPS, checked, isEvent, label, pageName, recent, stepMarks, title } from "./intake-facts.js";
+import {
+  FINAL, STEPS, candidates, checked, found, isEvent, label, needsDay, pageName, recent, stepMarks, title,
+} from "./intake-facts.js";
 import { state } from "./state.js";
 import { munich, today } from "./time.js";
 
@@ -29,6 +31,7 @@ export async function loadIntakes() {
 /* The line under an intake's name: where it stands, or the page of an event it found. */
 function meta(intake) {
   if (isEvent(intake) && intake.result?.title) return pageName(intake.url, true);
+  if (found(intake) && intake.state === "review") return `${isEvent(intake) ? "Event" : "Organisation"}. ${intake.log[0].text}`;
   const last = intake.log[intake.log.length - 1];
   return last ? last.text : intake.url;
 }
@@ -47,6 +50,7 @@ function list(box, intakes, heading) {
 export function renderIntakes() {
   $("add-org").textContent = state.admin ? "Add organisation" : "Suggest organisation";
   $("add-event").hidden = !state.user;
+  list($("found-intakes"), state.admin ? candidates(state.intakes) : [], "Found by the web search");
   list($("intakes"), recent(state.intakes, "organisation"), state.admin ? "Recently added" : "Your suggestions");
   list($("event-intakes"), recent(state.intakes, "event"), state.admin ? "Recently added events" : "Events you added");
 }
@@ -188,11 +192,31 @@ function decision(intake) {
   }
   const note = !review ? "If the check got it wrong, you can still add it."
     : checked(intake) ? "The check could not confirm this organisation. Add it if you know it is real and runs events in Munich."
-    : "Someone suggested this organisation. Nothing has been fetched yet. Approve it to check the website and collect its events.";
+    : `${found(intake) ? "The daily web search found this site." : "Someone suggested this organisation."} Nothing has been fetched yet. Approve it to check the website and collect its events.`;
   const add = review && !checked(intake) ? "Approve" : "Add anyway";
   return `<section><h3>${review ? "Your decision" : "Not added"}</h3>
     <p class="note">${note}</p>
     <div class="row-actions"><button type="button" class="btn primary" data-decide="approve">${add}</button>
+      ${review ? `<button type="button" class="btn" data-decide="reject">Reject</button>` : ""}</div>
+    <p class="form-error" id="decide-error" role="alert" hidden></p></section>`;
+}
+
+/* An admin's decision on an event the web search found: approving needs the day and the
+   place its page names, which the check then looks for (ADR 0016). */
+function eventDecision(intake) {
+  if (!state.admin) return "";
+  const review = intake.state === "review";
+  const note = review ? "The daily web search found this page. Nothing has been fetched yet. Give the day and the place it names to check it and add the event."
+    : "An admin decided not to add it. Give the day and the place it names to add it anyway.";
+  return `<section><h3>${review ? "Your decision" : "Not added"}</h3>
+    <p class="note">${note}</p>
+    <form class="form" id="decide-form" novalidate>
+      <label class="field"><span>Day <span class="hint">the day it takes place, or one of its days</span></span>
+        <input type="date" name="day" required min="${today()}"></label>
+      <label class="field"><span>Place <span class="hint">as the page names it: the venue or the city</span></span>
+        <input type="text" name="place" required maxlength="200" placeholder="Werk1, Munich"></label>
+    </form>
+    <div class="row-actions"><button type="button" class="btn primary" data-decide="approve">${review ? "Check and add" : "Add anyway"}</button>
       ${review ? `<button type="button" class="btn" data-decide="reject">Reject</button>` : ""}</div>
     <p class="form-error" id="decide-error" role="alert" hidden></p></section>`;
 }
@@ -248,8 +272,8 @@ function render(intake) {
   const symbol = { done: "✓", stopped: "?", failed: "!" };
   const steps = STEPS[isEvent(intake) ? "event" : "organisation"].map(([, text], i) =>
     `<li class="${marks[i]}"><span class="mark" aria-hidden="true">${symbol[marks[i]] || ""}</span><span>${esc(text)}</span></li>`).join("");
-  const outcome = isEvent(intake)
-    ? eventResult(intake) + removal(intake)
+  const outcome = needsDay(intake) ? eventDecision(intake)
+    : isEvent(intake) ? eventResult(intake) + removal(intake)
     : decision(intake) + (intake.result ? organisationResult(intake.result) : "") + profileCard(intake.profile);
   const log = intake.log.length
     ? `<ol class="log">${intake.log.map((entry) => `<li><time>${esc(munich(entry.at)?.time || "")}</time>
@@ -310,7 +334,8 @@ async function refresh(id) {
 
 async function decide(intake, approve) {
   try {
-    await api.decide(intake.id, approve);
+    const form = approve ? $("decide-form") : null;
+    await api.decide(intake.id, approve, form?.elements.day.value || null, form?.elements.place.value || null);
     clearTimeout(timer);
     await refresh(intake.id);
   } catch (error) {

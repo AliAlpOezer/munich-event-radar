@@ -10,7 +10,14 @@ import pytest
 from psycopg import errors, sql
 
 from conftest import TEST_DSN
-from event_radar.model import Evidence, JudgedEvent, ParsedEvent, SourceClass, Verdict
+from event_radar.model import (
+    Evidence,
+    IntakeKind,
+    JudgedEvent,
+    ParsedEvent,
+    SourceClass,
+    Verdict,
+)
 from event_radar.platforms import canonical
 from event_radar.store import Store
 
@@ -552,3 +559,29 @@ def test_the_api_is_rebuilt_only_when_it_changes(store):
         db.execute("UPDATE api_build SET hash = 'an older file'")
     reopen()
     assert api_oid() != before
+
+
+def test_an_admin_gives_a_found_event_its_day_and_place(store, users):
+    admin = users("admin@example.org")
+    store.users.grant_admin("admin@example.org")
+    found = store.intakes.propose(IntakeKind.EVENT, "https://lu.ma/ai-night", None, "Found")
+    unwanted = store.intakes.propose(IntakeKind.EVENT, "https://lu.ma/other-night", None, "Found")
+    with pytest.raises(errors.InvalidParameterValue), api(store, admin) as db:
+        db.execute("SELECT decide_intake(%s, true)", (found,))
+    with pytest.raises(errors.InvalidParameterValue), api(store, admin) as db:
+        db.execute("SELECT decide_intake(%s, true, %s, ' ')", (found, _soon()))
+    with api(store, admin) as db:
+        db.execute("SELECT decide_intake(%s, false)", (unwanted,))
+        db.execute("SELECT decide_intake(%s, true, %s, ' Garching ')", (found, _soon()))
+    row = store.intakes.get(found)
+    assert (row["state"], row["starts_on"], row["place"]) == ("queued", _soon(), "Garching")
+    assert store.intakes.get(unwanted)["state"] == "rejected"
+
+
+def test_a_person_adding_a_found_event_takes_it_over(store, users):
+    alice = users()
+    found = store.intakes.propose(IntakeKind.EVENT, "https://lu.ma/ai-night", None, "Found")
+    assert _add_event(store, alice, "https://lu.ma/ai-night/") == found
+    row = store.intakes.get(found)
+    assert (row["state"], row["submitted_by"], row["place"]) == ("queued", alice, "Munich")
+    assert [e["step"] for e in row["log"]] == ["search", "review"]
