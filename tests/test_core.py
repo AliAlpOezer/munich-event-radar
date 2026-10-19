@@ -8,7 +8,15 @@ import httpx
 import pytest
 
 from conftest import TEST_DSN
-from event_radar.extract.router import BudgetExhausted, DailyCapReached, Model, Provider, Router
+from event_radar.extract import triage
+from event_radar.extract.router import (
+    BudgetExhausted,
+    DailyCapReached,
+    Model,
+    Provider,
+    Router,
+    conforms,
+)
 from event_radar.extract.schema import SCHEMA
 from event_radar.extract.verify import verify
 from event_radar.html import image_url
@@ -407,6 +415,18 @@ def test_the_extraction_states_an_audience_from_its_own_values():
     assert "audience" in SCHEMA["properties"]["events"]["items"]["required"]
 
 
+def test_the_verifier_keeps_only_the_fields_it_asked_for():
+    page = "Demo night. https://example.org/a.png"
+    event, _ = verify(
+        {
+            "title": {"value": "Demo night", "quote": "Demo night"},
+            "image": {"value": "https://example.org/a.png", "quote": "https://example.org/a.png"},
+        },
+        page,
+    )
+    assert set(event.fields) == {"title"}
+
+
 def test_online_is_inferred_from_venue_or_meetup_description():
     zoom = "Join our virtual meetup.\nOnline. **[Register for the Zoom!](https://voxel51.com/x)**"
     meetup = verdict(title="Oct 14 - Advances in AI at SDSU", description=zoom)
@@ -501,6 +521,45 @@ def test_groq_answers_when_openrouter_times_out(store):
     router.complete([], {})
     router.complete([], {})
     assert sent == ["openrouter.example", "groq.example", "groq.example"]
+
+
+@pytest.mark.parametrize(
+    "answer, fits",
+    [
+        ({"events": []}, True),
+        ({}, True),
+        ({"events": [{"title": None, "venue": {"value": "Room 1", "quote": "Room 1"}}]}, True),
+        ({"events": [{"kind": {"value": "panel", "quote": "Panel"}, "image": "x"}]}, True),
+        ({"events": [{"title": "Talk on AI"}]}, False),
+        ({"events": [{"title": {"value": 5, "quote": "5"}}]}, False),
+        ({"events": [{"title": {"value": "Talk", "quote": ["Talk"]}}]}, False),
+        ({"events": ["Talk on AI"]}, False),
+        ({"events": None}, True),
+        ({"events": [None]}, False),
+        ([], False),
+    ],
+)
+def test_an_answer_conforms_by_its_types_alone(answer, fits):
+    assert conforms(answer, SCHEMA) is fits
+
+
+def test_a_verdict_id_is_an_integer_not_a_boolean():
+    assert conforms({"verdicts": [{"id": 0, "relevant": True}]}, triage.SCHEMA)
+    assert not conforms({"verdicts": [{"id": True, "relevant": True}]}, triage.SCHEMA)
+
+
+def test_a_json_object_model_reads_the_schema_it_answers_in(store):
+    asked = []
+
+    def handler(request):
+        asked.append(json.loads(request.content)["messages"])
+        return _ok({"events": []})
+
+    plain = replace(OPENROUTER, models=(Model("openrouter/free", "json_object"),))
+    _router(store, handler, plain).complete([{"role": "user", "content": "page"}], SCHEMA)
+    [[shape, question]] = asked
+    assert shape["role"] == "system" and json.dumps(SCHEMA) in shape["content"]
+    assert question == {"role": "user", "content": "page"}
 
 
 def test_every_provider_spent_defers_the_work(store):

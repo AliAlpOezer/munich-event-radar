@@ -10,7 +10,7 @@ from ..model import Evidence, ParsedEvent
 from ..platforms import is_ticket_host, platform_key
 from ..store import Store
 from . import triage
-from .router import Router
+from .router import Router, conforms
 from .schema import SCHEMA, SYSTEM, VERSION
 from .verify import verify
 
@@ -19,7 +19,8 @@ class Extractor:
     """Asks the LLM for the events on a page without structured data, keeping only the
     fields its quotes ground in the page (ADR 0002 D8). Answers are cached in `cache` by the
     hash of the question, the page's URL and text, so a page whose markup changes but whose
-    text does not is never asked about again (ADR 0009)."""
+    text does not is never asked about again (ADR 0009), unless its cached answer is out of
+    the schema's shape."""
 
     def __init__(self, router: Router, cache: Store):
         self.router = router
@@ -31,7 +32,7 @@ class Extractor:
         question = f"Page URL: {url}\n\nPage text:\n{text}"
         key = hashlib.sha256(question.encode()).hexdigest()
         cached = self.cache.extraction.cached(key, VERSION)
-        if cached is None:
+        if cached is None or not conforms(cached["result"], SCHEMA):
             messages = [
                 {"role": "system", "content": SYSTEM.replace("TODAY", date.today().isoformat())},
                 {"role": "user", "content": question},

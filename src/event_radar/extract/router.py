@@ -1,5 +1,6 @@
 """The LLM providers in order (ADR 0010): OpenRouter's free models, then Groq's. Each has its
-own key, models and daily budget; one that is spent, down or slow hands over to the next."""
+own key, models and daily budget; one that is spent, down or slow hands over to the next, and
+a model whose answer is out of the schema's shape hands over to the next model."""
 
 import json
 import re
@@ -100,7 +101,38 @@ def _body(model: Model, messages: list[dict], schema: dict, name: str) -> dict:
         body["tool_choice"] = {"type": "function", "function": {"name": f"record_{name}"}}
     else:
         body["response_format"] = {"type": "json_object"}
+        shape = f"Answer with JSON that follows this JSON Schema: {json.dumps(schema)}"
+        body["messages"] = [{"role": "system", "content": shape}, *messages]
     return body
+
+
+_TYPES = {"object": dict, "array": list, "string": str, "boolean": bool, "null": type(None)}
+
+
+def conforms(value, schema: dict) -> bool:
+    """Whether `value` has the types `schema` gives it, at every depth. A property that is
+    null or left out passes, one the schema does not name is the reader's to ignore, and
+    enums are the reader's to check: a model that misses a fact still answers."""
+    if "type" in schema:
+        types = schema["type"] if isinstance(schema["type"], list) else [schema["type"]]
+        if not any(_is(value, t) for t in types):
+            return False
+    if isinstance(value, dict):
+        properties = schema.get("properties", {})
+        return all(
+            conforms(v, properties[k])
+            for k, v in value.items()
+            if k in properties and v is not None
+        )
+    if isinstance(value, list):
+        return all(conforms(v, schema.get("items", {})) for v in value)
+    return True
+
+
+def _is(value, type_name: str) -> bool:
+    if type_name == "integer":
+        return isinstance(value, int) and not isinstance(value, bool)
+    return isinstance(value, _TYPES[type_name])
 
 
 def _content(response: dict, mode: str) -> dict:
@@ -196,7 +228,12 @@ class Router:
                 failures.append(f"{model.id}: {response.status_code} {detail[:120]}")
                 continue
             try:
-                return model.id, _content(response.json(), model.mode)
+                answer = _content(response.json(), model.mode)
             except (ValueError, KeyError, IndexError, TypeError) as exc:
                 failures.append(f"{model.id}: unparseable {exc}")
+                continue
+            if not conforms(answer, schema):
+                failures.append(f"{model.id}: answer out of the schema's shape")
+                continue
+            return model.id, answer
         raise _Exhausted
