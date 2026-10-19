@@ -1,6 +1,6 @@
 # ADR 0015: Stars lift an event's tier
 
-**Status:** DECIDED, building on branch `star-popularity`
+**Status:** DECIDED, built on branch `star-popularity`, not merged
 **Date:** 2026-10-19
 **Inputs:** Alp, 2026-10-18: "if lots of people (for example 10% for B Tier and 20% for A
 Tier), are adding events to their favorites, so that shows us that those events are
@@ -59,3 +59,26 @@ use, so the privacy notice says so, with its legal basis. Alp reviews that text.
 | 2 | `Events.starrers()`, stars per group in `judge_events` | A store test: stars on two events that merge count each account once |
 | 3 | Privacy notice | Read by Alp |
 | 4 | How it landed | Full suite, node tests, ruff, replay without the LLM identical to `main` |
+
+## How it landed
+
+| Commit | What |
+|---|---|
+| db68953 | This record |
+| 8848566 | `profile.yaml` `stars` (A 10, B 5), `Profile.star_tiers`, `Judge.judge(stars=)`: the rules give a verdict, then stars lift a tier, never a drop |
+| 6c2da63 | `Events.star_counts` (one query for all groups: distinct accounts over the stored events each group's aliases name), passed to the judge in `judge_events`; the `users` test fixture moved to `conftest.py` |
+| 806fe0d | Privacy notice: stars are counted per event, legal basis Art. 6(1)(f) GDPR |
+
+Checks (2026-10-19): 151 pytest, 19 node tests, ruff check and format clean. The new tests
+fail without the change: 5 stars lift C to B and 10 lift C and B to A, a dropped event
+stays dropped, stars on two events that merge count each account once (4, not 7), and a
+harvested C event starred 5 times is B after the next judging, with its source fetched
+every 24 h. Replay without the LLM byte-identical to `main` ba7e3ea (A recall 0.636). The
+privacy paragraph checked in Chromium at 375 and 1280 px, light and dark: no horizontal
+scroll. Not checked: how many hosted events have stars (the read-only count was refused
+by auto mode), so whether any event moves on the first run is unknown; with few accounts,
+none is expected.
+
+No migration and no change to the API, so nothing needs to run before merging. The rule
+applies from the first harvest or browse job after the merge; the privacy paragraph goes
+live with the Pages build of the merge commit.
