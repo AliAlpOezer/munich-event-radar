@@ -40,25 +40,6 @@ def api(store: Store, user: uuid.UUID | None = None):
         yield db
 
 
-@pytest.fixture
-def users(store):
-    made = []
-
-    def make(email: str | None = None) -> uuid.UUID:
-        user = uuid.uuid4()
-        with store.tx() as db:
-            db.execute(
-                "INSERT INTO auth.users (id, email) VALUES (%s, %s)",
-                (user, email or f"{user}@example.org"),
-            )
-        made.append(user)
-        return user
-
-    yield make
-    with store.tx() as db:
-        db.execute("DELETE FROM auth.users WHERE id = ANY(%s)", (made,))
-
-
 def _verdict(tier="B"):
     return Verdict(tier, ("ai=core",))
 
