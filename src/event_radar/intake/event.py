@@ -63,7 +63,7 @@ def one_event(result: ParseResult) -> ParsedEvent | None:
 
 def check_day(day: date, fields: dict, text: str) -> None:
     """Check 5: the event's local days, start to end, hold `day`; without a stated start,
-    the page text names that day and its year."""
+    the page text names that day, or a range of days that holds it, and its year."""
     start = local_date(field_value(fields, "starts_at"))
     if start:
         end = max(start, local_date(field_value(fields, "ends_at")) or start)
@@ -71,7 +71,7 @@ def check_day(day: date, fields: dict, text: str) -> None:
             when = start if end == start else f"{start} to {end}"
             raise Refused(f"The page says the event is on {when}, not {day.isoformat()}.")
         return
-    named, year_stated = names_date(day.isoformat(), text)
+    named, year_stated = names_date(day.isoformat(), text, within=True)
     if not (named and year_stated):
         raise Refused(f"The page does not name {day.day} {day:%B %Y}.")
 

@@ -313,6 +313,18 @@ def test_a_page_without_structured_data_passes_on_its_words(store, profile):
     assert [j["url"] for j in store.extraction.pending(10)] == [PAGE]
 
 
+@pytest.mark.parametrize("offset", [0, 1])
+def test_a_page_naming_a_range_of_days_passes_on_any_of_them(store, profile, offset):
+    # forge.sphere-intelligence.eu, 2026-10-19: refused for "does not name 11 November 2026".
+    first = _day()
+    last = first + timedelta(days=2)
+    text = f"AI hackathon, {first.day}–{last.day} {last:%B %Y}, Sphere HQ, Munich."
+    if first.month != last.month:
+        text = f"AI hackathon, {first.day} {first:%B} – {last.day} {last:%B %Y}, Munich."
+    _, row = _add(store, profile, _page(text=text), first + timedelta(days=offset))
+    assert row["state"] == "done", row["log"]
+
+
 @pytest.mark.parametrize(
     ("page", "day", "place", "message"),
     [
