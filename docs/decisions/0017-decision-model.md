@@ -1,6 +1,6 @@
 # ADR 0017: Closed-answer decisions go to a decision model; the LLM keeps the quoted facts
 
-**Status:** PROPOSED. No paid Jev: a free open model first (wayfinder Q1, Alp 2026-10-19), `laya-multilingual` then Kev-0.8B (Q7). Plan step 2 built; measured zero-shot in Q2, neither model earns a band (see Measured). No decision moves yet
+**Status:** PROPOSED. No paid Jev: a free open model first (wayfinder Q1, Alp 2026-10-19), `laya-multilingual` then Kev-0.8B (Q7). Plan step 2 built; measured zero-shot in Q2, neither model earns a band (see Measured). No decision moves; re-measured on a larger label set in about four weeks or with a new release, then trained or closed (Q8, Alp 2026-10-20)
 **Date:** 2026-10-19
 **Inputs:** Alp, 2026-10-19: "i have decided to think about using jev instead of llm calls,
 when we are deciding for events, organizations, etc. [...] where they could cut waiting &
