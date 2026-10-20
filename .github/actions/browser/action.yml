@@ -1,0 +1,11 @@
+name: Set up Chromium
+description: Playwright's Chromium and its system packages, for a radar set up with the browser extra.
+runs:
+  using: composite
+  steps:
+    - uses: actions/cache@v6
+      with:
+        path: ~/.cache/ms-playwright
+        key: playwright-${{ runner.os }}-${{ hashFiles('pyproject.toml') }}
+    - shell: bash
+      run: playwright install --with-deps chromium

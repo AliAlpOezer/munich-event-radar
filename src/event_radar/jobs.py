@@ -13,7 +13,7 @@ from .extract.router import Router
 from .fetch import Fetcher
 from .harvester import Harvester, cadence_hours
 from .intake.service import IntakeService
-from .model import RunOutcome
+from .model import IntakeKind, RunOutcome
 from .profile import Profile
 from .search.tavily import Tavily
 from .store import Store
@@ -115,8 +115,9 @@ def browse(settings: config.Settings) -> dict:
     return dict(harvester.counts)
 
 
-def intakes(settings: config.Settings) -> int:
-    """Work the queued intakes and exit (ADR 0006 D3); returns how many."""
+def intakes(settings: config.Settings, kind: IntakeKind | None = None) -> int:
+    """Work the queued intakes of `kind`, or of every kind, and exit (ADR 0006 D3);
+    returns how many."""
     store = Store(settings.database_url)
     service = IntakeService(
         store,
@@ -124,4 +125,9 @@ def intakes(settings: config.Settings) -> int:
         _router(settings, store),
         renderer=render.Renderer if render.available() else None,
     )
-    return service.drain()
+    return service.drain(kind)
+
+
+def queued(settings: config.Settings, kind: IntakeKind) -> int:
+    """How many intakes of `kind` a drain would work."""
+    return Store(settings.database_url).intakes.queued(kind)

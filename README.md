@@ -61,7 +61,7 @@ Every job runs on GitHub Actions; no machine of ours has to be on.
 |---|---|---|
 | `harvest` | daily, 04:17 UTC | `event-radar seed`, then `harvest`: fetch what is due, extract with OpenRouter (at most 60 min), judge |
 | `browse` | Sundays 03:17 UTC | `event-radar browse`: renders JavaScript-only sources with Chromium |
-| `intake` | dispatched by Postgres when an intake is queued, and hourly | `event-radar intakes`: works the queue, then exits |
+| `intake` | dispatched by Postgres when an intake is queued, and hourly | two jobs: `event-radar intakes --kind event` without Chromium, so an added event is checked within seconds of starting; and, only when `event-radar queued organisation` finds work, Chromium and `event-radar intakes --kind organisation` |
 | `search` | daily, 03:23 UTC | `event-radar search`: asks Tavily the day's queries; pages the radar does not know wait for an admin's review (ADR 0016) |
 | `calibrate` | manual | `event-radar calibrate`: serves a decision model on the runner's CPU and measures it against the LLM's cached answers, read-only; the result is a 7-day artifact (ADR 0017) |
 | `test` | every push and pull request | ruff and pytest against a Postgres 17 service, and the page's node tests |

@@ -281,7 +281,7 @@ def test_a_suggestion_waits_for_an_admin(store, users):
         True,
         "Example",
     )
-    assert store.intakes.next_queued() is None
+    assert store.intakes.next_queued(IntakeKind.ORGANISATION) is None
     with api(store, bob) as db:
         assert db.execute("SELECT * FROM intakes").fetchall() == []
     with pytest.raises(errors.InsufficientPrivilege), api(store, alice) as db:
@@ -295,7 +295,7 @@ def test_a_suggestion_waits_for_an_admin(store, users):
         assert len(db.execute("SELECT * FROM runs").fetchall()) == 0
     row = store.intakes.get(intake_id)
     assert row["approved"] and [e["step"] for e in row["log"]] == ["review", "review"]
-    assert store.intakes.next_queued()["id"] == intake_id
+    assert store.intakes.next_queued(IntakeKind.ORGANISATION)["id"] == intake_id
     with pytest.raises(errors.ObjectNotInPrerequisiteState), api(store, admin) as db:
         db.execute("SELECT decide_intake(%s, false)", (intake_id,))
     with pytest.raises(errors.InvalidParameterValue), api(store, alice) as db:
@@ -352,7 +352,7 @@ def test_anyone_logged_in_adds_an_event_within_the_caps(store, users):
         "Munich",
         True,
     )
-    assert store.intakes.next_queued()["id"] == first
+    assert store.intakes.next_queued(IntakeKind.EVENT)["id"] == first
     for url, day, place in (
         ("javascript:alert(1)", _soon(), "Munich"),
         ("https://example.org/e", None, "Munich"),

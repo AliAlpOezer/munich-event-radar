@@ -88,16 +88,25 @@ class Intakes(Repository):
                 "SELECT drop_intake_page(%s, true) AS deleted", (intake_id,)
             ).fetchone()["deleted"]
 
-    def next_queued(self) -> dict | None:
+    def next_queued(self, kind: IntakeKind) -> dict | None:
         with self.database.tx() as db:
             return db.execute(
-                "SELECT * FROM intake WHERE state = %s ORDER BY id LIMIT 1", (IntakeState.QUEUED,)
+                "SELECT * FROM intake WHERE state = %s AND kind = %s ORDER BY id LIMIT 1",
+                (IntakeState.QUEUED, kind),
             ).fetchone()
 
-    def requeue_interrupted(self) -> int:
-        """Queue again the intakes a killed job left mid-step."""
+    def queued(self, kind: IntakeKind) -> int:
+        """The intakes of `kind` a drain would work: queued, or cut off mid-step."""
         with self.database.tx() as db:
             return db.execute(
-                "UPDATE intake SET state = %s WHERE state = ANY(%s)",
-                (IntakeState.QUEUED, list(WORKING_INTAKE_STATES)),
+                "SELECT count(*) AS n FROM intake WHERE state = ANY(%s) AND kind = %s",
+                ([IntakeState.QUEUED, *WORKING_INTAKE_STATES], kind),
+            ).fetchone()["n"]
+
+    def requeue_interrupted(self, kind: IntakeKind) -> int:
+        """Queue again the intakes of `kind` a killed job left mid-step."""
+        with self.database.tx() as db:
+            return db.execute(
+                "UPDATE intake SET state = %s WHERE state = ANY(%s) AND kind = %s",
+                (IntakeState.QUEUED, list(WORKING_INTAKE_STATES), kind),
             ).rowcount
