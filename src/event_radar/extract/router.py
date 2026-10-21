@@ -189,12 +189,13 @@ class Router:
         ]
 
     def complete(
-        self, messages: list[dict], schema: dict, name: str = "events"
+        self, messages: list[dict], schema: dict, name: str = "events", first: str | None = None
     ) -> tuple[str, dict]:
-        """The first answer any provider's models give. Raises DailyCapReached or
-        BudgetExhausted when every provider is spent, AllModelsFailed otherwise."""
+        """The first answer any provider's models give, provider `first` asked first when it
+        has a key. Raises DailyCapReached or BudgetExhausted when every provider is spent,
+        AllModelsFailed otherwise."""
         failures = []
-        for provider in self.providers:
+        for provider in sorted(self.providers, key=lambda p: p.name != first):
             if provider.name in self._down or provider.name in self._spent:
                 continue
             try:

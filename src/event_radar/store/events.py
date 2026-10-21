@@ -41,12 +41,13 @@ class Events(Repository):
                 verdict = event.verdict
                 db.execute(
                     "INSERT INTO event (key, fields, merge_basis, tier, tier_reasons, drop_reason,"
-                    " sources, first_seen, updated_at)"
-                    " VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)"
+                    " sources, first_seen, updated_at, judgment_key)"
+                    " VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)"
                     " ON CONFLICT (key) DO UPDATE SET fields = excluded.fields,"
                     " merge_basis = excluded.merge_basis, tier = excluded.tier,"
                     " tier_reasons = excluded.tier_reasons, drop_reason = excluded.drop_reason,"
-                    " sources = excluded.sources, updated_at = excluded.updated_at",
+                    " sources = excluded.sources, updated_at = excluded.updated_at,"
+                    " judgment_key = excluded.judgment_key",
                     (
                         key,
                         Jsonb(event.fields),
@@ -57,6 +58,7 @@ class Events(Repository):
                         Jsonb(sorted(event.sources)),
                         stamp,
                         stamp,
+                        event.judgment_key,
                     ),
                 )
                 db.cursor().executemany(
@@ -79,6 +81,21 @@ class Events(Repository):
             ).fetchall()
         stars = {r["n"]: r["stars"] for r in rows}
         return [stars.get(n, 0) for n in range(1, len(groups) + 1)]
+
+    def judgment_keys(self, groups: list[set[str]]) -> list[str | None]:
+        """For each set of aliases, the judgment the oldest stored event one of them names
+        was last judged by (ADR 0018)."""
+        with self.database.tx() as db:
+            rows = db.execute(
+                "SELECT DISTINCT ON (g.n) g.n, e.judgment_key"
+                " FROM jsonb_array_elements(%s) WITH ORDINALITY AS g (aliases, n)"
+                " CROSS JOIN jsonb_array_elements_text(g.aliases) AS a (alias)"
+                " JOIN event_alias ea ON ea.alias = a.alias JOIN event e ON e.key = ea.event_key"
+                " WHERE e.judgment_key IS NOT NULL ORDER BY g.n, e.first_seen",
+                (Jsonb([sorted(g) for g in groups]),),
+            ).fetchall()
+        keys = {r["n"]: r["judgment_key"] for r in rows}
+        return [keys.get(n) for n in range(1, len(groups) + 1)]
 
     def known(self, aliases: set[str]) -> dict | None:
         """The oldest stored event one of `aliases` names."""

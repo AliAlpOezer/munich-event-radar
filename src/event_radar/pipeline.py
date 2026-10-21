@@ -1,3 +1,4 @@
+from .extract import judgments
 from .model import Kind, ParseResult, SourceClass
 from .parse import parse
 from .store import Store
@@ -15,9 +16,13 @@ def ingest(
     source_class: SourceClass,
     base: str | None = None,
 ) -> ParseResult:
-    """Parse a fetched page into observations; queue it for the LLM where parsing fell short."""
+    """Parse a fetched page into observations, each event with the candidate it is judged
+    by; queue the page for the LLM where parsing fell short."""
     result = parse(base or url, content_type, body, kind)
-    store.observations.add(content_hash, url, source_class, result.method, result.events)
+    candidates = judgments.candidates(result.events, body, base or url, kind == Kind.EVENT_PAGE)
+    store.observations.add(
+        content_hash, url, source_class, result.method, result.events, candidates
+    )
     if result.needs_llm:
         store.extraction.enqueue(content_hash, url, LLM_PRIORITY[kind])
     return result

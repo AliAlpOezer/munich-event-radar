@@ -1,8 +1,9 @@
 # Relevance profile (Q3, Q5; ADR 0002 D6). The judge reads this; edit it to tune tiers.
 # Recall first: unknown price never demotes an event. Unknown AI relevance counts as
-# relevant only for organisers with `ai_focus: true` in seed/organisers.yaml. Elsewhere an
-# event is C when it is in `scope`, and off topic otherwise (ADR 0011), so general
-# calendars such as TUM's neither flood B nor fill the board with concerts.
+# relevant only for organisers with `ai_focus: true` in seed/organisers.yaml, whose events
+# not about AI are C (ADR 0018 D9). Elsewhere an event is C when it is in `scope`, and off
+# topic otherwise (ADR 0011), so general calendars such as TUM's neither flood B nor fill
+# the board with concerts.
 
 munich:
   cities: [münchen, munich, muenchen, garching, garching bei münchen, martinsried, planegg,
@@ -65,6 +66,12 @@ scope:
             accelerator, incubator, inkubator, pitch, investor, demo day]
   career: [career, karriere, " job", recruiting, hiring, internship, praktikum]
   developer: [" coding ", developer, programming, software engineer]
+
+# The topics besides AI that keep an event once the LLM has judged what its page says (ADR
+# 0018); the words of `scope` then no longer decide. An event judged to be about one of these
+# is in scope, and C unless AI is one of its themes. `tech` is Alp's of 2026-10-20 (Schwarz
+# Group's IT, cloud meetups); without it the scope is ADR 0011's AI, startups and careers.
+topics: [startup, career, tech]
 
 # Who the board is not for (Alp, 2026-10-17: "our audience is young adults/ adults", and
 # families too; ADR 0012). An event aimed at one of these audiences is not stored, whatever

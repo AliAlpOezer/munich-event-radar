@@ -41,6 +41,10 @@ class Resolved:
     def classes(self) -> set[SourceClass]:
         return {o.source_class for o in self.observations}
 
+    def ranked(self) -> list[Observation]:
+        """The observations, the one whose fields win first."""
+        return sorted(self.observations, key=_rank)
+
 
 def _norm(text: object) -> str:
     folded = unicodedata.normalize("NFKD", str(text or "")).encode("ascii", "ignore").decode()

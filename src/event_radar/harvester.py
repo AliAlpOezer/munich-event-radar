@@ -1,20 +1,22 @@
 """Harvesting (ADR 0002): fetch the due sources, ask the LLM about the pages parsing could
-not read, and judge the events that all observations describe."""
+not read and what each event is about (ADR 0018), and judge the events that all
+observations describe."""
 
 from collections import Counter
 from datetime import UTC, datetime
 
 import httpx
 
-from .extract import Extractor, triage
+from .extract import Extractor, judgments
 from .extract.router import AllModelsFailed, BudgetExhausted, DailyCapReached
 from .fetch import Fetched, Fetcher
 from .judge import Judge
-from .model import JobState, JudgedEvent, Kind, SourceClass
+from .model import NOT_STORED, JobState, JudgedEvent, Kind, Observation, ParsedEvent, SourceClass
+from .parse import parse
 from .pipeline import ingest
 from .profile import Profile
 from .render import Renderer
-from .resolve import resolve
+from .resolve import Resolved, resolve
 from .store import Store
 
 EVENT_PAGE_HOURS = 72
@@ -134,10 +136,9 @@ class Harvester:
             url, digest = job["url"], job["snapshot_hash"]
             source = self.store.sources.get(url)
             event_page = bool(source and source["kind"] == Kind.EVENT_PAGE)
+            body = self.store.pages.body(digest)
             try:
-                method, events = self.extractor.extract(
-                    url, self.store.pages.body(digest), event_page
-                )
+                method, events = self.extractor.extract(url, body, event_page)
             except (BudgetExhausted, DailyCapReached):
                 self.counts["llm_deferred"] += 1
                 return
@@ -150,15 +151,20 @@ class Harvester:
             if len(events) > 1 and source and source["organiser_id"] is None:
                 events = []
                 self.counts["llm_several"] += 1
-            self.store.observations.add(digest, url, self.profile.source_class(url), method, events)
+            candidates = judgments.candidates(events, body, url, event_page)
+            self.store.observations.add(
+                digest, url, self.profile.source_class(url), method, events, candidates
+            )
             self.store.extraction.finish(digest, url, JobState.DONE)
             self.counts["llm_done"] += 1
 
     def _worth_extracting(self, jobs: list[dict]) -> list[dict]:
-        """The jobs worth an extraction call (ADR 0010): the judge skips the events it
-        drops for their audience or a fact, whatever their topic, an AI-focused or startup
-        organiser's pages need no question, and the LLM sorts the rest in batches, off
-        topic or not (ADR 0011). The others become `skipped`."""
+        """The jobs worth an extraction call (ADR 0010, ADR 0018 D7): the judge skips the
+        events it drops for their audience or a fact, whatever their topic, an AI-focused or
+        startup organiser's pages need no judgment, and the others are extracted unless the
+        judgment of their page puts them out of scope. One left unanswered, or whose page says
+        too little to tell, is extracted. The
+        skipped become `skipped`."""
         now = datetime.now(UTC)
         focused = self.store.sources.focused_urls()
         startups = self.store.sources.startup_urls()
@@ -167,29 +173,92 @@ class Harvester:
         kept: set[tuple[str, str]] = set()
         for job in jobs:
             ident = (job["snapshot_hash"], job["url"])
-            candidate, fields = triage.candidate(job["url"], self.store.pages.body(ident[0]))
-            ai_focus, startup_focus = job["url"] in focused, job["url"] in startups
+            body = self.store.pages.body(ident[0])
+            fields = _one_event(job["url"], body)
             if fields and (self.judge.audience(fields)[0] or self.judge.fact_drop(fields, now)):
                 self.store.extraction.skip(*ident)
                 self.counts["llm_skipped"] += 1
-            elif ai_focus or startup_focus:
+            elif job["url"] in focused or job["url"] in startups:
                 kept.add(ident)
+            elif candidate := judgments.page(body, job["url"]):
+                asked[ident] = judgments.key(candidate)
+                candidates[asked[ident]] = candidate
             else:
-                asked[ident] = triage.key(candidate)
-                candidates.setdefault(asked[ident], candidate)
-        verdicts = (
-            self.extractor.relevant(candidates, self.profile.any_topic_kinds) if candidates else {}
-        )
+                kept.add(ident)
+        self.store.judgments.want(candidates)
+        self.counts["judged"] += self.extractor.judge(candidates)
+        answers = self.store.judgments.answers(candidates, judgments.VERSION)
         for ident, key in asked.items():
-            if verdicts.get(key, True):
-                kept.add(ident)
-            else:
+            judgment = judgments.telling(answers.get(key))
+            verdict = judgment and self.judge.judge(
+                {}, now, ai_focus=False, startup_focus=False, judgment=judgment
+            )
+            if verdict and verdict.drop_reason in NOT_STORED:
                 self.store.extraction.skip(*ident)
                 self.counts["llm_unrelated"] += 1
+            else:
+                kept.add(ident)
         return [j for j in jobs if (j["snapshot_hash"], j["url"]) in kept]
 
+    def ask_judgments(self, urls: list[str] | None = None, until: datetime | None = None) -> None:
+        """Ask what each event is about (ADR 0018), of every event no fact drops, or only of
+        the events of `urls`, by the candidate of its best observation; outside the judge
+        lock, so an added event never waits for the harvest's calls, and no batch starts
+        after `until`. An observation made before judgments were asked gets its candidate
+        first."""
+        if self.extractor is None:
+            return
+        if urls is None:
+            observations = self.store.observations.all()
+        else:
+            observations = [o for url in urls for o in self.store.observations.of_url(url)]
+        now = datetime.now(UTC)
+        owed = [g for g in resolve(observations) if self._owes_judgment(g, now)]
+        unnamed = {_parse(o) for g in owed for o in g.observations if not o.judgment_key}
+        self._name_candidates([o for o in observations if _parse(o) in unnamed])
+        keys = [keys[0] for g in owed if (keys := _judgment_keys(g))]
+        try:
+            self.counts["judged"] += self.extractor.judge(keys, until=until)
+        except (BudgetExhausted, DailyCapReached):
+            self.counts["judgments_deferred"] += 1
+        except (AllModelsFailed, httpx.HTTPError):
+            self.counts["judgments_failed"] += 1
+
+    def _owes_judgment(self, group: Resolved, now: datetime) -> bool:
+        """Whether what the event is about decides it: no title phrase names another
+        audience and no fact drops it (ADR 0018 invariant 6)."""
+        fields = group.fields
+        return not (self.judge.audience(fields)[0] or self.judge.fact_drop(fields, now))
+
+    def _name_candidates(self, observations: list[Observation]) -> None:
+        """Give the events of parses made before judgments were asked their candidates, from
+        the page they read, or from their fields once its body is gone; `observations`
+        holds every item of those parses."""
+        if not observations:
+            return
+        kinds = {s["url"]: s["kind"] for s in self.store.sources.all()}
+        parses: dict[tuple[str, str, str], list[Observation]] = {}
+        for obs in sorted(observations, key=lambda o: o.id):
+            parses.setdefault(_parse(obs), []).append(obs)
+        named = {}
+        for (digest, url, _), items in parses.items():
+            try:
+                body = self.store.pages.body(digest)
+            except KeyError:
+                body = b""
+            events = [ParsedEvent(o.fields) for o in items]
+            found = judgments.candidates(events, body, url, kinds.get(url) == Kind.EVENT_PAGE)
+            for obs, candidate in zip(items, found, strict=True):
+                if candidate:
+                    obs.judgment_key = judgments.key(candidate)
+                    named[obs.id] = (obs.judgment_key, candidate)
+        self.store.observations.name_candidates(named)
+
     def judge_events(self) -> None:
-        """Rewrite the events from all observations; one job at a time (ADR 0006 D4)."""
+        """Rewrite the events from all observations and the judgments asked of them; one job
+        at a time (ADR 0006 D4). An event whose candidate is not answered yet is judged by
+        the judgment it was last judged by, then by an answer to an older version of the
+        question, or by its words without one or with one that could not tell (ADR 0018 D6)."""
         with self.store.lock("judge"):
             now = datetime.now(UTC)
             focused = self.store.sources.focused_urls()
@@ -197,21 +266,57 @@ class Harvester:
             judged = []
             groups = resolve(self.store.observations.all())
             stars = self.store.events.star_counts([g.aliases for g in groups])
-            for group, starred in zip(groups, stars, strict=True):
+            keys = [_judgment_keys(g) for g in groups]
+            previous = self.store.events.judgment_keys([g.aliases for g in groups])
+            wanted = {k for each in keys for k in each} | set(filter(None, previous))
+            answers = self.store.judgments.answers(wanted, judgments.VERSION)
+            held = self.store.judgments.answers(wanted)
+            for group, starred, candidates, last in zip(groups, stars, keys, previous, strict=True):
                 urls = {o.url for o in group.observations}
+                # An answer to an older question holds until the current one is answered.
+                used = next((k for k in [*candidates, last] if k in answers), None) or next(
+                    (k for k in [*candidates, last] if k in held), None
+                )
+                judgment = judgments.telling(held.get(used))
                 verdict = self.judge.judge(
                     group.fields,
                     now,
                     ai_focus=bool(urls & focused),
                     startup_focus=bool(urls & startups),
                     stars=starred,
+                    judgment=judgment,
                 )
                 judged.append(
                     JudgedEvent(
-                        group.aliases, group.fields, group.merge_basis, verdict, sorted(urls)
+                        group.aliases,
+                        group.fields,
+                        group.merge_basis,
+                        verdict,
+                        sorted(urls),
+                        used,
                     )
                 )
                 self.counts[f"tier_{verdict.tier or verdict.drop_reason}"] += 1
+                owed = bool(candidates) and candidates[0] not in answers
+                self.counts["judgment_pending"] += owed and self._owes_judgment(group, now)
                 if verdict.tier in {"A", "B"}:
                     self.store.sources.set_cadence(sorted(urls), HOT_HOURS)
             self.counts.update(self.store.events.save(judged))
+
+
+def _parse(obs: Observation) -> tuple[str, str, str]:
+    """The parse an observation is one item of."""
+    return obs.snapshot_hash, obs.url, obs.method
+
+
+def _judgment_keys(group: Resolved) -> list[str]:
+    """The candidates an event is judged by, its best observation's first (ADR 0018)."""
+    return [o.judgment_key for o in group.ranked() if o.judgment_key]
+
+
+def _one_event(url: str, body: bytes) -> dict | None:
+    """The fields of a page's one structured event, in the judge's form."""
+    result = parse(url, None, body, Kind.EVENT_PAGE)
+    if len(result.events) == 1 and "title" in result.events[0].fields:
+        return {k: {"value": v.value} for k, v in result.events[0].fields.items()}
+    return None

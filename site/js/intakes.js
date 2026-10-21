@@ -91,7 +91,7 @@ export function openEventForm(from, given = {}) {
   showDrawer({ mode: "event-form", title: "Add an event", hash: "#add-event", from });
   fillDrawer(`
     <p class="note">Give the event's own page, and the day and the place it names. The radar reads the page and
-      checks that it names that day and place, and that the event is about AI, startups, careers or coding.
+      checks that it names that day and place, and that the event is about AI, startups, careers or tech.
       Within minutes it is on the board, with what its page says.</p>
     <form class="form" id="event-form" novalidate>
       <label class="field"><span>Event page</span>

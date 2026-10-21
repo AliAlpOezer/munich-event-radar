@@ -21,6 +21,8 @@ from .store import Store
 # The LLM queue takes no new job this long after a harvest starts, so judging always runs
 # within the workflow's 90 minutes; one job can take 12 more (four models, 180 s each).
 LLM_MINUTES = 60
+# The judgments' last batch starts by then, within harvest.yml's 90 minutes (ADR 0018).
+JUDGMENT_MINUTES = 75
 
 
 def _profile(settings: config.Settings) -> Profile:
@@ -82,6 +84,7 @@ def harvest(settings: config.Settings) -> dict:
     try:
         harvester.harvest_due()
         harvester.extract(until=started + timedelta(minutes=LLM_MINUTES))
+        harvester.ask_judgments(until=started + timedelta(minutes=JUDGMENT_MINUTES))
         harvester.judge_events()
         counts["pages_pruned"] = store.pages.prune()
     except Exception as exc:
