@@ -6,7 +6,7 @@ import json
 import re
 import threading
 import time
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from pathlib import Path
 
 import httpx
@@ -17,7 +17,8 @@ from event_radar.extract.router import Model, Provider, Router
 from event_radar.fetch import Fetcher
 from event_radar.harvester import Harvester
 from event_radar.intake.service import IntakeService
-from event_radar.model import JudgedEvent, Verdict
+from event_radar.model import IntakeKind, JudgedEvent, Verdict
+from event_radar.store import database
 
 DISPATCH_URL = "https://api.github.com/repos/owner/repo/actions/workflows/intake.yml/dispatches"
 
@@ -93,6 +94,52 @@ def test_a_drain_works_the_queue_and_requeues_cut_off_work_first(store, profile)
     assert service.drain() == 0
 
 
+def test_a_drain_of_one_kind_leaves_the_other_kinds_work_alone(store, profile):
+    # Event intakes are drained in a job of their own, beside a long organisation intake.
+    profiling = _insert(store, "profiling")
+    organisation = _insert(store, "queued")
+    event = store.intakes.create_event(
+        "https://example.org/events/ai-night", date.today(), "Munich"
+    )
+    service = IntakeService(store, profile)
+    worked: list[int] = []
+
+    def process(intake_id: int) -> None:
+        worked.append(intake_id)
+        store.intakes.update(intake_id, state="done")
+
+    service.process = process
+    assert store.intakes.queued(IntakeKind.ORGANISATION) == 2
+    assert service.drain(IntakeKind.EVENT) == 1
+    assert worked == [event]
+    assert store.intakes.get(profiling)["state"] == "profiling"
+    assert service.drain(IntakeKind.ORGANISATION) == 2
+    assert worked == [event, profiling, organisation]
+    assert store.intakes.queued(IntakeKind.ORGANISATION) == 0
+
+
+def test_opening_a_store_that_is_up_to_date_asks_one_question(store):
+    # Every job opens the store; from a runner in the US each statement is a round trip.
+    class Counting:
+        def __init__(self, db):
+            self.db, self.queries = db, []
+
+        def execute(self, query, *args):
+            self.queries.append(query)
+            return self.db.execute(query, *args)
+
+        def __getattr__(self, name):
+            return getattr(self.db, name)
+
+    with store.tx() as db:
+        counting = Counting(db)
+        database._migrate(counting, store.schema, store.api)
+        assert len(counting.queries) == 1
+        db.execute("DELETE FROM api_build")
+        database._migrate(Counting(db), store.schema, store.api)
+        assert db.execute("SELECT count(*) AS n FROM api_build").fetchone()["n"] == 1
+
+
 def test_a_second_holder_of_a_lock_waits_for_the_first(store):
     order: list[str] = []
     held = threading.Event()
@@ -142,6 +189,17 @@ def test_pruning_keeps_what_a_fetch_or_the_llm_can_still_read(store):
         b"b, latest",
         b"just stored by another job",
     }
+
+
+def test_robots_txt_does_not_make_the_first_page_wait(store):
+    # Every event intake waited the whole interval between robots.txt and its page.
+    client = httpx.Client(transport=httpx.MockTransport(lambda r: httpx.Response(200, text="")))
+    fetcher = Fetcher(store, "test-agent", min_interval_s=0.5, client=client)
+    started = time.monotonic()
+    assert fetcher.get("https://example.org/a").ok
+    assert time.monotonic() - started < 0.4
+    assert fetcher.get("https://example.org/b").ok
+    assert time.monotonic() - started >= 0.5
 
 
 def test_a_fetch_whose_body_is_gone_asks_for_the_whole_page(store):

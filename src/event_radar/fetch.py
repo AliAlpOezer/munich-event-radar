@@ -68,8 +68,8 @@ class Politeness:
             raise RobotsDisallowed(url)
 
     def _load_robots(self, origin: str) -> Protego | None:
+        # Not paced: asking for robots.txt is not a visit, so the first page need not wait.
         try:
-            self._pace(origin)
             response = self.client.get(f"{origin}/robots.txt")
         except httpx.HTTPError:
             return DISALLOW_ALL

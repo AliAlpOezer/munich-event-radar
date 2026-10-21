@@ -7,7 +7,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Self
 
-from psycopg import Connection, sql
+from psycopg import Connection, errors, sql
 from psycopg.rows import dict_row
 from psycopg_pool import ConnectionPool
 
@@ -36,9 +36,10 @@ class Database:
             db.execute("SET TIME ZONE 'UTC'")
             db.commit()
 
+        # Two, opened together: a job holding a lock works on the second.
         self.pool = ConnectionPool(
             dsn,
-            min_size=1,
+            min_size=2,
             max_size=4,
             kwargs={"row_factory": dict_row},
             configure=configure,
@@ -90,9 +91,29 @@ def _search_path(db: Connection, *schemas: str) -> None:
     db.execute("SELECT set_config('search_path', %s, true)", (f"{path}, pg_temp",))
 
 
+def _current(db: Connection, schema: str, api: str, versions: set[str], digest: str) -> bool:
+    """Whether `schema` holds every migration and `api` the build of api.sql, asked in one
+    statement; a schema never migrated has no tables to ask."""
+    query = sql.SQL(
+        "SELECT (SELECT array_agg(version) FROM {s}.schema_migration) AS done,"
+        " (SELECT hash FROM {s}.api_build LIMIT 1) AS built,"
+        " to_regnamespace(%s) IS NOT NULL AS present"
+    ).format(s=sql.Identifier(schema))
+    try:
+        row = db.execute(query, (api,)).fetchone()
+    except errors.UndefinedTable:
+        db.rollback()
+        return False
+    return row["present"] and row["built"] == digest and versions <= set(row["done"] or ())
+
+
 def _migrate(db: Connection, schema: str, api: str) -> None:
     """Apply pending migrations to `schema`, then rebuild `api` from api.sql if anything
     changed (ADR 0005). One transaction, serialised by an advisory lock."""
+    api_sql = (SQL / "api.sql").read_text(encoding="utf-8")
+    digest = hashlib.sha256(api_sql.encode()).hexdigest()
+    if _current(db, schema, api, {p.stem for p in MIGRATIONS.glob("*.sql")}, digest):
+        return
     db.execute(sql.SQL("CREATE SCHEMA IF NOT EXISTS {}").format(sql.Identifier(schema)))
     db.execute("SELECT pg_advisory_xact_lock(hashtext(%s))", (schema,))
     _search_path(db, schema)
@@ -104,8 +125,6 @@ def _migrate(db: Connection, schema: str, api: str) -> None:
     db.execute("CREATE TABLE IF NOT EXISTS api_build (hash text NOT NULL)")
     done = {r["version"] for r in db.execute("SELECT version FROM schema_migration")}
     pending = [p for p in sorted(MIGRATIONS.glob("*.sql")) if p.stem not in done]
-    api_sql = (SQL / "api.sql").read_text(encoding="utf-8")
-    digest = hashlib.sha256(api_sql.encode()).hexdigest()
     built = db.execute("SELECT hash FROM api_build").fetchone()
     present = db.execute("SELECT to_regnamespace(%s) IS NOT NULL AS ok", (api,)).fetchone()
     if not pending and present["ok"] and built and built["hash"] == digest:

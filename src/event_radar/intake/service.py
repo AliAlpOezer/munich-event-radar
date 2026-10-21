@@ -58,16 +58,18 @@ class IntakeService:
         self.min_interval_s = min_interval_s
         self.log = store.intakes.log
 
-    def drain(self) -> int:
-        """Work every queued intake, then return how many (ADR 0006 D3). One drainer per
-        store at a time, so an intake cut off mid-step by a killed job is queued again
-        first."""
+    def drain(self, kind: IntakeKind | None = None) -> int:
+        """Work every queued intake of `kind`, or of every kind, then return how many
+        (ADR 0006 D3). One drainer per kind and store at a time, so an intake cut off
+        mid-step by a killed job is queued again first, and an event intake never waits
+        for an organisation's."""
         worked = 0
-        with self.store.lock("intake"):
-            self.store.intakes.requeue_interrupted()
-            while (row := self.store.intakes.next_queued()) is not None:
-                self.process(row["id"])
-                worked += 1
+        for each in (kind,) if kind else tuple(IntakeKind):
+            with self.store.lock(f"intake:{each}"):
+                self.store.intakes.requeue_interrupted(each)
+                while (row := self.store.intakes.next_queued(each)) is not None:
+                    self.process(row["id"])
+                    worked += 1
         return worked
 
     def process(self, intake_id: int) -> None:

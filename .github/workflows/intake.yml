@@ -5,22 +5,44 @@ on:
   workflow_dispatch:
   schedule:
     - cron: "43 * * * *"
-concurrency:
-  group: intake
-  cancel-in-progress: false
 permissions:
   contents: read
 jobs:
-  intake:
+  # An added event is checked while its person waits: no Chromium, which an event intake
+  # never uses, and a job of its own, so it never waits for an organisation's intake.
+  events:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    concurrency:
+      group: intake-events
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ./.github/actions/setup
+      - run: event-radar intakes --kind event
+        env:
+          RADAR_DATABASE_URL: ${{ secrets.RADAR_DATABASE_URL }}
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+  organisations:
     runs-on: ubuntu-24.04
     timeout-minutes: 30
+    concurrency:
+      group: intake-organisations
+      cancel-in-progress: false
     steps:
       - uses: actions/checkout@v7
       - uses: ./.github/actions/setup
         with:
           extras: browser
-          browser: "true"
-      - run: event-radar intakes
+      - id: queue
+        run: echo "queued=$(event-radar queued organisation)" >> "$GITHUB_OUTPUT"
+        env:
+          RADAR_DATABASE_URL: ${{ secrets.RADAR_DATABASE_URL }}
+      - if: steps.queue.outputs.queued != '0'
+        uses: ./.github/actions/browser
+      - if: steps.queue.outputs.queued != '0'
+        run: event-radar intakes --kind organisation
         env:
           RADAR_DATABASE_URL: ${{ secrets.RADAR_DATABASE_URL }}
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}

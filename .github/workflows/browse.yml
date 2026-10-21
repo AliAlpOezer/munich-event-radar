@@ -18,7 +18,7 @@ jobs:
       - uses: ./.github/actions/setup
         with:
           extras: browser
-          browser: "true"
+      - uses: ./.github/actions/browser
       - run: event-radar browse
         env:
           RADAR_DATABASE_URL: ${{ secrets.RADAR_DATABASE_URL }}

@@ -1,30 +1,32 @@
 name: Set up the radar
-description: Python with the radar installed, and Chromium when a job renders pages.
+description: Python with the radar installed in a cached virtual environment.
 inputs:
   extras:
     description: Optional dependency groups to install, comma-separated
     default: ""
-  browser:
-    description: Install Playwright's Chromium
-    default: "false"
 runs:
   using: composite
   steps:
-    - uses: actions/setup-python@v7
+    - id: python
+      uses: actions/setup-python@v7
       with:
         python-version: "3.12"
-        cache: pip
-        cache-dependency-path: pyproject.toml
-    # Editable, so the radar finds profile.yaml and seed/ in the checkout.
-    - shell: bash
-      env:
-        EXTRAS: ${{ inputs.extras }}
-      run: pip install -e ".${EXTRAS:+[$EXTRAS]}"
-    - if: inputs.browser == 'true'
+    - id: week
+      shell: bash
+      run: echo "week=$(date -u +%G-%V)" >> "$GITHUB_OUTPUT"
+    # Kept a week at most, so the dependencies stay current without a lockfile.
+    - id: venv
       uses: actions/cache@v6
       with:
-        path: ~/.cache/ms-playwright
-        key: playwright-${{ runner.os }}-${{ hashFiles('pyproject.toml') }}
-    - if: inputs.browser == 'true'
+        path: .venv
+        key: venv-${{ runner.os }}-${{ steps.python.outputs.python-version }}-${{ inputs.extras }}-${{ hashFiles('pyproject.toml') }}-${{ steps.week.outputs.week }}
+    # Editable, so the radar finds profile.yaml and seed/ in the checkout.
+    - if: steps.venv.outputs.cache-hit != 'true'
       shell: bash
-      run: playwright install --with-deps chromium
+      env:
+        EXTRAS: ${{ inputs.extras }}
+      run: |
+        python -m venv .venv
+        .venv/bin/pip install -e ".${EXTRAS:+[$EXTRAS]}"
+    - shell: bash
+      run: echo "$GITHUB_WORKSPACE/.venv/bin" >> "$GITHUB_PATH"

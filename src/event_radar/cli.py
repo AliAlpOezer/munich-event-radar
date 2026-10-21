@@ -1,5 +1,6 @@
 import argparse
 import json
+import time
 from pathlib import Path
 
 from . import config, golden, jobs, sqlite_import
@@ -9,7 +10,7 @@ from .decide.systemone import SystemOne
 from .extract import Extractor
 from .extract.router import Router, providers
 from .fetch import Fetcher
-from .model import field_value
+from .model import IntakeKind, field_value
 from .profile import Profile
 from .resolve import local_minute
 from .store import Store
@@ -28,7 +29,13 @@ def browse(settings: config.Settings, args: argparse.Namespace) -> None:
 
 
 def intakes(settings: config.Settings, args: argparse.Namespace) -> None:
-    print(f"worked {jobs.intakes(settings)} intakes")
+    started = time.monotonic()
+    worked = jobs.intakes(settings, args.kind)
+    print(f"worked {worked} intakes in {time.monotonic() - started:.1f} s")
+
+
+def queued(settings: config.Settings, args: argparse.Namespace) -> None:
+    print(jobs.queued(settings, args.kind))
 
 
 def board(settings: config.Settings, args: argparse.Namespace) -> None:
@@ -119,12 +126,19 @@ def _parser() -> argparse.ArgumentParser:
         (seed, "add the organisers and sources of seed/organisers.yaml"),
         (harvest, "fetch the due sources, extract with the LLM, judge"),
         (browse, "render the due JavaScript-only sources"),
-        (intakes, "work the queued intakes, then exit"),
         (board, "print the A and B events"),
         (freeze, "save the golden pages to RADAR_FIXTURES_DIR"),
         (replay, "score the golden events from the saved pages"),
     ):
         commands.add_parser(command.__name__, help=help_text).set_defaults(run=command)
+    drain = commands.add_parser("intakes", help="work the queued intakes, then exit")
+    drain.add_argument("--kind", type=IntakeKind, choices=list(IntakeKind), help="only this kind")
+    drain.set_defaults(run=intakes)
+    waiting = commands.add_parser(
+        "queued", help="print how many intakes of a kind wait for a drain"
+    )
+    waiting.add_argument("kind", type=IntakeKind, choices=list(IntakeKind))
+    waiting.set_defaults(run=queued)
     finder = commands.add_parser(
         "search", help="search the web for events and organisers, for an admin's review"
     )
