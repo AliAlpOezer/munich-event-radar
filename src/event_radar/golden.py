@@ -7,7 +7,7 @@ from urllib.parse import urlsplit
 
 import yaml
 
-from .extract import Extractor
+from .extract import Extractor, judgments
 from .fetch import Fetcher
 from .judge import Judge
 from .model import Kind, field_value
@@ -64,7 +64,8 @@ def replay(repo: Path, fixtures: Path, dsn: str | None, extractor: Extractor | N
             if result.needs_llm and extractor:
                 # Fixture pages have no source rows, so none counts as an event page.
                 method, events = extractor.extract(url, body, event_page=False)
-                store.observations.add(digest, url, source_class, method, events)
+                candidates = judgments.candidates(events, body, url, event_page=True)
+                store.observations.add(digest, url, source_class, method, events, candidates)
         groups = resolve(store.observations.all())
     return _score(golden, groups, judge, now, _focus_domains(repo))
 

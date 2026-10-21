@@ -1,5 +1,13 @@
+import hashlib
+import json
 from dataclasses import dataclass, field
 from enum import StrEnum
+
+
+def json_key(value: object) -> str:
+    """The sha256 of `value` as canonical JSON: equal for equal content."""
+    text = json.dumps(value, sort_keys=True, ensure_ascii=False, default=str)
+    return hashlib.sha256(text.encode()).hexdigest()
 
 
 class SourceClass(StrEnum):
@@ -151,6 +159,7 @@ class JudgedEvent:
     merge_basis: str
     verdict: Verdict
     sources: list[str]
+    judgment_key: str | None = None  # the judgment it was judged by (ADR 0018)
 
 
 @dataclass
@@ -164,3 +173,4 @@ class Observation:
     fields: dict[str, Evidence]
     observed_at: str
     links: list[str] = field(default_factory=list)
+    judgment_key: str | None = None  # the candidate its event is judged by (ADR 0018)

@@ -196,7 +196,7 @@ class _Router:
         self.answer = answer
         self.asked: list[str] = []
 
-    def complete(self, messages, schema, name="events"):
+    def complete(self, messages, schema, name="events", first=None):
         self.asked.append(messages[-1]["content"])
         return "test-model", dict(self.answer)
 
@@ -238,6 +238,7 @@ def test_the_llm_profile_admits_a_genuine_organiser_and_rejects_a_fake(store, pr
 # Adding one event from its page (ADR 0014).
 
 PAGE = "https://example.org/events/ai-night"
+DROPPED_OFF_TOPIC = "The page is not about AI, startups, careers or tech."
 A = Verdict("A", ("ai=core",))
 ONLINE = "https://schema.org/OnlineEventAttendanceMode"
 
@@ -365,7 +366,7 @@ def test_a_page_naming_a_range_of_days_passes_on_any_of_them(store, profile, off
             _page(text="Salsa night, 5 November 2030, in Munich."),
             date(2030, 11, 5),
             "Munich",
-            "The page is not about AI, startups, careers or coding.",
+            "The page is not about AI, startups, careers or tech.",
         ),
         (
             # aistrategyconference.com, 2026-10-18: the page renders only with JavaScript.
@@ -405,7 +406,7 @@ def test_the_page_must_name_the_day_and_the_place(store, profile, page, day, pla
         (
             _jsonld("TUM tanzt!", "2030-11-05T18:00:00+01:00"),
             "Munich",
-            "The page is not about AI, startups, careers or coding.",
+            "The page is not about AI, startups, careers or tech.",
         ),
         (
             _jsonld("Children's University: How Do AI Agents Learn?", "2030-11-05T17:00:00+01:00"),
@@ -428,6 +429,54 @@ def test_a_page_the_llm_reads_passes_on_its_words_though_its_title_names_no_topi
     _, row = _add(store, profile, page, date(2030, 11, 5))
     assert row["state"] == "done", row["log"]
     assert [j["url"] for j in store.extraction.pending(10)] == [PAGE]
+
+
+class _Judgments:
+    """An LLM stand-in that judges every event as `answer`, and keeps whom it asked first."""
+
+    def __init__(self, **answer):
+        topics = {"startup": False, "career": False, "tech": False}
+        self.answer = {"ai": "none", **topics, "kind": "other", "audience": "adults", **answer}
+        self.asked: list[tuple[str, str | None]] = []
+
+    def complete(self, messages, schema, name="events", first=None):
+        self.asked.append((name, first))
+        lines = messages[-1]["content"].splitlines()
+        return "test-model", {"judgments": [{"id": i, **self.answer} for i in range(len(lines))]}
+
+
+# The Eventbrite talk refused on 2026-10-19, hand-written with invented names: tickets in its
+# structured data, so no LLM extraction, and its topic only in its text.
+TALK = _page(
+    _jsonld("Campus Speakers Series x Example Retail Group", "2030-10-26T17:30:00+01:00"),
+    text="What AI and the future of work mean for talent; recruiters join the after-event.",
+)
+
+
+def test_an_event_its_words_do_not_place_is_added_on_its_judgment(store, profile):
+    judge = _Judgments(ai="some", career=True, tech=True, kind="industry_talk")
+    _, row = _add(store, profile, TALK, date(2030, 10, 26), router=judge)
+    assert row["state"] == "done", row["log"]
+    assert row["result"]["tier"] == "A"
+    assert judge.asked == [("judgments", "groq")]
+    [event] = store.events.all()
+    assert event["judgment_key"]
+
+
+def test_an_event_judged_off_topic_is_refused_and_without_an_llm_the_words_decide(store, profile):
+    _, row = _add(store, profile, TALK, date(2030, 10, 26), router=_Judgments(kind="workshop"))
+    assert (row["state"], row["error"]) == ("rejected", DROPPED_OFF_TOPIC), row["log"]
+    store.intakes.update(row["id"], state="failed")
+    _, row = _add(store, profile, TALK, date(2030, 10, 26))
+    assert (row["state"], row["error"]) == ("rejected", DROPPED_OFF_TOPIC), row["log"]
+
+
+def test_an_event_whose_page_says_too_little_to_judge_is_checked_by_its_words(store, profile):
+    page = _page(_jsonld("Talk on AI agents", "2030-11-05T18:00:00+01:00"), text="Join us.")
+    judge = _Judgments(ai="unknown")
+    _, row = _add(store, profile, page, date(2030, 11, 5), router=judge)
+    assert row["state"] == "done", row["log"]
+    assert row["result"]["tier"] == "B" and judge.asked == [("judgments", "groq")]
 
 
 def test_a_page_on_the_radar_already_adds_nothing(store, profile):
@@ -497,7 +546,7 @@ class _Reader:
         self.fail = fail
         self.asked: list[str] = []
 
-    def complete(self, messages, schema, name="events"):
+    def complete(self, messages, schema, name="events", first=None):
         self.asked.append(name)
         if self.fail:
             raise self.fail
@@ -529,7 +578,7 @@ def test_a_page_the_llm_must_read_is_read_at_once_without_the_relevance_question
     reader = _Reader(NIGHT)
     _, row = _add(store, profile, _page(text=NIGHT_TEXT), date(2030, 11, 5), router=reader)
     assert row["state"] == "done", row["log"]
-    assert reader.asked == ["events"]
+    assert reader.asked == ["judgments", "events"]
     [event] = store.events.all()
     assert (row["result"]["event_key"], row["result"]["tier"]) == (event["key"], "B")
     assert store.extraction.pending(10) == []
@@ -569,7 +618,7 @@ def test_a_page_the_llm_must_read_is_read_at_once_without_the_relevance_question
                     "ai_relevance": ("none", "Salsa night"),
                 },
             ),
-            "The page is not about AI, startups, careers or coding.",
+            "The page is not about AI, startups, careers or tech.",
         ),
     ],
     ids=["several events", "other day", "off topic"],

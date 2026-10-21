@@ -11,7 +11,7 @@ from ..profile import Profile
 IN_SCOPE = "in_scope-v1"
 REGISTRATION = "registration-v1"
 
-# The topics of the LLM triage (`triage.system`) and of `profile.yaml` `scope`, one question
+# The topics of ADR 0010's LLM triage and of `profile.yaml` `scope`, one question
 # each, so that no option order biases the answer (ADR 0017 D5). In scope when any is yes.
 _TOPICS = {
     "ai": "artificial intelligence, machine learning or data science",

@@ -5,6 +5,7 @@ from .database import Database, now_iso
 from .events import Events
 from .extraction import Extraction
 from .intakes import Intakes
+from .judgments import Judgments
 from .observations import Observations
 from .organisers import Organisers
 from .pages import Pages
@@ -23,6 +24,7 @@ class Store(Database):
         self.pages = Pages(self)
         self.observations = Observations(self)
         self.extraction = Extraction(self)
+        self.judgments = Judgments(self)
         self.events = Events(self)
         self.users = Users(self)
         self.intakes = Intakes(self)

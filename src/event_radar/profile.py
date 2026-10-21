@@ -57,6 +57,7 @@ class Profile:
     kind_keywords: dict[str, tuple[str, ...]]
     scope_keywords: tuple[str, ...]
     scope_groups: dict[str, tuple[str, ...]]
+    topics: frozenset[str]
     audiences: dict[str, tuple[str, ...]]
     online: Online
     link_signals: tuple[str, ...]
@@ -80,6 +81,7 @@ class Profile:
             kind_keywords={k: _keywords(v) for k, v in raw["keywords"]["kinds"].items()},
             scope_keywords=_keywords([w for words in raw["scope"].values() for w in words]),
             scope_groups={k: _keywords(v) for k, v in raw["scope"].items()},
+            topics=frozenset(raw["topics"]),
             audiences={k: tuple(v) for k, v in raw["audience"].items()},
             online=Online(**{k: tuple(v) for k, v in raw["online"].items()}),
             link_signals=tuple(raw["intake"]["link_signals"]),

@@ -12,7 +12,7 @@ from pathlib import Path
 import httpx
 import pytest
 
-from event_radar.extract import Extractor
+from event_radar.extract import Extractor, judgments
 from event_radar.extract.router import Model, Provider, Router
 from event_radar.fetch import Fetcher
 from event_radar.harvester import Harvester
@@ -280,25 +280,43 @@ def test_a_page_without_an_organiser_follows_no_links(store, profile):
 TALK = "https://example.org/events/talk"
 
 
-class _Answers:
-    """An LLM stand-in. It sorts events as related unless their line names one of
-    `unrelated`, names a page's talks as its events, and keeps what it was asked."""
+def _judged(i: int, about_ai: bool, ai: str | None = None) -> dict:
+    topics = {"startup": False, "career": False, "tech": False}
+    kind = "talk" if about_ai else "other"
+    return {
+        "id": i,
+        "ai": ai or ("core" if about_ai else "none"),
+        **topics,
+        "kind": kind,
+        "audience": "adults",
+    }
 
-    def __init__(self, unrelated: tuple[str, ...] = ()):
+
+class _Answers:
+    """An LLM stand-in. It judges events about AI unless their line names one of
+    `unrelated`, or cannot tell when it names one of `unclear`, names a page's talks as its
+    events, and keeps what it was asked."""
+
+    def __init__(self, unrelated: tuple[str, ...] = (), unclear: tuple[str, ...] = ()):
         self.unrelated = unrelated
+        self.unclear = unclear
         self.asked: list[str] = []
         self.sorted: list[list[str]] = []
 
-    def complete(self, messages, schema, name="events"):
+    def complete(self, messages, schema, name="events", first=None):
         question = messages[-1]["content"]
-        if name == "verdicts":
+        if name == "judgments":
             lines = question.splitlines()
             self.sorted.append(lines)
-            verdicts = [
-                {"id": i, "relevant": not any(u in line for u in self.unrelated)}
+            judged = [
+                _judged(
+                    i,
+                    not any(u in line for u in self.unrelated),
+                    "unknown" if any(u in line for u in self.unclear) else None,
+                )
                 for i, line in enumerate(lines)
             ]
-            return "test-model", {"verdicts": verdicts}
+            return "test-model", {"judgments": judged}
         self.asked.append(question)
         titles = [t.strip() for t in re.findall(r"Talk on [\w ]+", question)]
         return "test-model", {"events": [{"title": {"value": t, "quote": t}} for t in titles]}
@@ -314,7 +332,9 @@ def _talk_site(store, profile, versions: list[bytes]) -> tuple[Harvester, _Answe
     return _site(store, profile, {"/events/talk": lambda: next(bodies)})
 
 
-def _site(store, profile, pages: dict, unrelated: tuple[str, ...] = ()):
+def _site(
+    store, profile, pages: dict, unrelated: tuple[str, ...] = (), unclear: tuple[str, ...] = ()
+):
     """A harvester over event pages: path to a function giving the body of each fetch."""
 
     def handler(request: httpx.Request) -> httpx.Response:
@@ -325,10 +345,25 @@ def _site(store, profile, pages: dict, unrelated: tuple[str, ...] = ()):
 
     for path in pages:
         store.sources.add(f"https://example.org{path}", "event_page", "OWN", 72, "test")
-    answers = _Answers(unrelated)
+    answers = _Answers(unrelated, unclear)
     client = httpx.Client(transport=httpx.MockTransport(handler))
     fetcher = Fetcher(store, "test-agent", min_interval_s=0, client=client)
     return Harvester(store, profile, fetcher, extractor=Extractor(answers, store)), answers
+
+
+def _ticketed(name: str, start: str, about: str) -> bytes:
+    """An event page whose structured data has its tickets, so it never goes to the LLM
+    queue, and whose text says what it is about."""
+    event = {
+        "@context": "https://schema.org",
+        "@type": "Event",
+        "name": name,
+        "startDate": start,
+        "location": {"@type": "Place", "name": "Audimax", "address": "Arcisstr. 21, 80333 München"},
+        "offers": {"@type": "Offer", "price": "0", "url": "https://example.org/register"},
+    }
+    script = f"<script type='application/ld+json'>{json.dumps(event)}</script>"
+    return f"<html><body><h1>{name}</h1><p>{about}</p>{script}</body></html>".encode()
 
 
 def _event(name: str, start: str) -> bytes:
@@ -402,8 +437,8 @@ def test_a_model_answering_out_of_shape_hands_over_to_the_next(store, profile):
         if request.url.path.endswith("/models"):
             return httpx.Response(200, json={"data": [{"id": "first"}]})
         body = json.loads(request.content)
-        if body.get("response_format", {}).get("json_schema", {}).get("name") == "verdicts":
-            answer = {"verdicts": [{"id": 0, "relevant": True}]}
+        if body.get("response_format", {}).get("json_schema", {}).get("name") == "judgments":
+            answer = {"judgments": [_judged(0, True)]}
         else:
             answer = next(replies)
         message = {"content": json.dumps(answer)}
@@ -520,6 +555,114 @@ def test_a_past_off_topic_event_is_not_asked_about_and_not_stored(store, profile
         ("Talk on AI agents", "past")
     ]
     assert harvester.counts["tier_off_topic"] == 1
+
+
+TALK = "Campus Speakers Series x Example Retail Group"
+
+
+def test_every_upcoming_event_is_judged_once_and_its_judgment_keeps_it(store, profile):
+    pages = {
+        "/events/talk": lambda: _ticketed(TALK, "2030-10-26T17:30:00+01:00", "AI and work."),
+        "/events/past": lambda: _ticketed(TALK, "2020-10-26T17:30:00+01:00", "AI and play."),
+        "/events/salsa": lambda: _ticketed("Salsa", "2030-10-27T19:00:00+01:00", "Dance."),
+    }
+    harvester, answers = _site(store, profile, pages, unrelated=("Salsa",))
+    harvester.harvest_due()
+    harvester.judge_events()
+    # Without a judgment the words decide, as before ADR 0018.
+    assert store.events.all() == [] and harvester.counts["judgment_pending"] == 2
+    harvester.extract()
+    harvester.ask_judgments()
+    [batch] = answers.sorted
+    assert len(batch) == 2 and not any("2020" in line for line in batch)
+    assert answers.asked == []
+    harvester.judge_events()
+    [event] = store.events.all()
+    assert (event["fields"]["title"]["value"], event["tier"]) == (TALK, "B")
+    assert "judged: no topic" in event["tier_reasons"]
+    harvester.ask_judgments()
+    assert len(answers.sorted) == 1
+
+
+def test_an_event_whose_page_says_too_little_is_judged_by_its_words(store, profile):
+    pages = {
+        "/events/night": lambda: _ticketed("AI Night #29", "2030-10-26T18:00:00+01:00", "Join."),
+        "/events/stats": lambda: _ticketed(
+            "Colloquium", "2030-10-27T16:00:00+01:00", "A statistical test for latent distance."
+        ),
+    }
+    harvester, _ = _site(store, profile, pages, unrelated=("Colloquium",), unclear=("Night",))
+    org = store.organisers.add("Example AI Institute", "example.org", "test", ai_focus=True)
+    with store.tx() as db:
+        db.execute("UPDATE source SET organiser_id = %s WHERE url LIKE '%%/stats'", (org,))
+    harvester.harvest_due()
+    harvester.ask_judgments()
+    harvester.judge_events()
+    # Its words keep the night; an AI-focused organiser's event its page says is not about
+    # AI is C (ADR 0018 D9).
+    tiers = {e["fields"]["title"]["value"]: e["tier"] for e in store.events.all()}
+    assert tiers == {"AI Night #29": "B", "Colloquium": "C"}
+    assert all(e["judgment_key"] for e in store.events.all())
+
+
+def test_a_page_that_says_too_little_to_judge_is_extracted(store, profile):
+    pages = {"/events/night": lambda: _event("Community night", "2030-11-05T18:00:00+01:00")}
+    harvester, answers = _site(store, profile, pages, unclear=("Community",))
+    harvester.harvest_due()
+    harvester.extract()
+    assert len(answers.sorted) == 1 and len(answers.asked) == 1
+    assert _states(store) == {"/events/night": "done"}
+
+
+def test_an_event_keeps_its_judgment_while_its_changed_page_waits_for_one(store, profile):
+    abouts = iter(["AI and work.", "AI, work and a new speaker."])
+    pages = {"/events/talk": lambda: _ticketed(TALK, "2030-10-26T17:30:00+01:00", next(abouts))}
+    harvester, answers = _site(store, profile, pages)
+    harvester.harvest_due()
+    harvester.ask_judgments()
+    harvester.judge_events()
+    [before] = store.events.all()
+    _due_again(store)
+    with store.tx() as db:
+        db.execute("UPDATE observation SET observed_at = observed_at - interval '1 day'")
+    harvester.harvest_due()
+    harvester.extractor = None
+    harvester.judge_events()
+    [after] = store.events.all()
+    assert (after["key"], after["tier"]) == (before["key"], before["tier"]) == (after["key"], "B")
+    assert after["judgment_key"] == before["judgment_key"]
+    assert harvester.counts["judgment_pending"] == 1
+
+
+def test_an_answer_to_an_older_question_holds_until_the_new_one_is_answered(
+    store, profile, monkeypatch
+):
+    pages = {"/events/talk": lambda: _ticketed(TALK, "2030-10-26T17:30:00+01:00", "AI and work.")}
+    harvester, answers = _site(store, profile, pages)
+    harvester.harvest_due()
+    harvester.ask_judgments()
+    harvester.judge_events()
+    [before] = store.events.all()
+    monkeypatch.setattr(judgments, "VERSION", "judgments-next")
+    harvester.extractor = None
+    harvester.judge_events()
+    [after] = store.events.all()
+    assert (after["key"], after["tier"]) == (before["key"], before["tier"]) == (after["key"], "B")
+    assert harvester.counts["judgment_pending"] == 1
+
+
+def test_observations_made_before_judgments_get_their_candidates(store, profile):
+    pages = {"/events/talk": lambda: _ticketed(TALK, "2030-10-26T17:30:00+01:00", "AI and work.")}
+    harvester, answers = _site(store, profile, pages)
+    harvester.harvest_due()
+    with store.tx() as db:
+        db.execute("UPDATE observation SET judgment_key = NULL")
+        db.execute("DELETE FROM judgment")
+    harvester.ask_judgments()
+    [batch] = answers.sorted
+    assert "AI and work." in batch[0]
+    [seen] = store.observations.all()
+    assert seen.judgment_key and store.judgments.answers([seen.judgment_key], judgments.VERSION)
 
 
 def test_a_childrens_event_is_not_asked_about_and_not_stored(store, profile):

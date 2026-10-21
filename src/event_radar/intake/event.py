@@ -8,9 +8,11 @@ from collections.abc import Callable
 from datetime import UTC, date, datetime
 from urllib.parse import urlsplit
 
+import httpx
+
 from .. import html
-from ..extract import Extractor
-from ..extract.router import Router
+from ..extract import Extractor, judgments
+from ..extract.router import AllModelsFailed, BudgetExhausted, DailyCapReached, Router
 from ..extract.verify import names_date
 from ..fetch import Fetched, Fetcher
 from ..harvester import EVENT_PAGE_HOURS, Harvester
@@ -37,7 +39,7 @@ DROPPED = {
     "past": "The event is over.",
     "online_only": "The event is online only; the radar shows events in Munich.",
     "outside_munich": "The event is not in Munich.",
-    OFF_TOPIC: "The page is not about AI, startups, careers or coding.",
+    OFF_TOPIC: "The page is not about AI, startups, careers or tech.",
     AUDIENCE: "The event is for children, school pupils or families; the radar is for adults.",
 }
 # Words of a place that name none.
@@ -91,11 +93,24 @@ def check_place(place: str, fields: dict, text: str, cities: frozenset[str]) -> 
         raise Refused(f"The page does not name {place}.")
 
 
-def check_relevance(judge: Judge, fields: dict, text: str, needs_llm: bool, now: datetime) -> None:
-    """Check 7: the judge keeps the structured event as the board would, with no organiser
-    to lend it a focus; a page without one holds an AI or scope word. A page the LLM will
-    read passes on such a word too when only its parsed fields are off topic, since the
-    LLM states the event's relevance (ADR 0010)."""
+def check_relevance(
+    judge: Judge,
+    fields: dict,
+    text: str,
+    needs_llm: bool,
+    now: datetime,
+    judgment: dict | None = None,
+) -> None:
+    """Check 7: the judge keeps the event as the board would, with no organiser to lend it
+    a focus, by what the LLM judged its page to be about (ADR 0018). Without a judgment: the
+    structured event by its fields, and a page without one by an AI or scope word; a page
+    the LLM will read passes on such a word too when only its parsed fields are off topic,
+    since the LLM states the event's relevance (ADR 0010)."""
+    if judgment is not None:
+        verdict = judge.judge(fields, now, ai_focus=False, startup_focus=False, judgment=judgment)
+        if verdict.tier:
+            return
+        raise Refused(DROPPED[verdict.drop_reason])
     if not fields:
         if not judge.names_scope(text):
             raise Refused(DROPPED[OFF_TOPIC])
@@ -153,7 +168,8 @@ class EventIntake:
                 if known := self.store.events.known(_aliases(url, event)):
                     self._done(intake_id, known, already=True)
                     return
-                self._check(row, _stored(event), html.text(body, url), result.needs_llm)
+                text = html.text(body, url)
+                self._check(row, _stored(event), text, result.needs_llm, self._judgment(body, url))
         except Refused as refusal:
             self._refuse(intake_id, refusal)
             return
@@ -195,7 +211,24 @@ class EventIntake:
             )
         return fetched, body
 
-    def _check(self, row: dict, fields: dict, text: str, needs_llm: bool) -> None:
+    def _judgment(self, body: bytes, url: str) -> dict | None:
+        """What the page's one event is about, asked at once, Groq first, as one call within
+        the day's budget (ADR 0018 D8); None without an LLM, an answer, or one that could
+        tell."""
+        candidate = judgments.page(body, url)
+        if candidate is None or self.router is None:
+            return None
+        key = judgments.key(candidate)
+        self.store.judgments.want({key: candidate})
+        try:
+            Extractor(self.router, self.store).judge([key], first="groq")
+        except (BudgetExhausted, DailyCapReached, AllModelsFailed, httpx.HTTPError):
+            return None
+        return judgments.telling(self.store.judgments.answers([key], judgments.VERSION).get(key))
+
+    def _check(
+        self, row: dict, fields: dict, text: str, needs_llm: bool, judgment: dict | None
+    ) -> None:
         """Checks 5 to 7 on the page's structured event, or on its text without one."""
         if not fields and not text:
             raise Refused(
@@ -203,7 +236,7 @@ class EventIntake:
             )
         check_day(row["starts_on"], fields, text)
         check_place(row["place"], fields, text, self.profile.cities)
-        check_relevance(self.judge, fields, text, needs_llm, datetime.now(UTC))
+        check_relevance(self.judge, fields, text, needs_llm, datetime.now(UTC), judgment)
         self.log(
             row["id"],
             "checking",
@@ -265,7 +298,10 @@ class EventIntake:
         fields = groups[0].fields
         check_day(row["starts_on"], fields, text)
         check_place(row["place"], fields, text, self.profile.cities)
-        check_relevance(self.judge, fields, text, False, datetime.now(UTC))
+        keys = [o.judgment_key for o in groups[0].ranked() if o.judgment_key]
+        answers = self.store.judgments.answers(keys, judgments.VERSION)
+        judgment = judgments.telling(next((answers[k] for k in keys if k in answers), None))
+        check_relevance(self.judge, fields, text, False, datetime.now(UTC), judgment)
 
     def _done(self, intake_id: int, event: dict | None, *, already: bool) -> None:
         if event is None:

@@ -55,11 +55,12 @@ def og_image(tree: LexborHTMLParser, base: str) -> str | None:
     return None
 
 
-def text(body: bytes, base: str, limit: int = 12000) -> str:
+def text(body: bytes, base: str, limit: int = 12000, links: bool = True) -> str:
+    """The page's visible text; with `links`, each link followed by its address."""
     tree = LexborHTMLParser(body)
     for node in tree.css(_DROP):
         node.decompose()
-    for anchor in tree.css("a[href]"):
+    for anchor in tree.css("a[href]") if links else ():
         href = anchor.attributes.get("href") or ""
         if href.startswith(("http", "/")) and (url := absolute(base, href)):
             anchor.replace_with(f"{anchor.text(strip=True)} <{url}>")
