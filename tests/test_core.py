@@ -18,7 +18,7 @@ from event_radar.extract.router import (
     conforms,
 )
 from event_radar.extract.schema import SCHEMA
-from event_radar.extract.verify import verify
+from event_radar.extract.verify import names_date, verify
 from event_radar.html import image_url
 from event_radar.judge import Judge
 from event_radar.model import Evidence, Kind, Observation, SourceClass
@@ -174,6 +174,39 @@ def test_verifier_rejects_ungrounded_and_flags_missing_year():
     assert set(rejected) == {"title", "reg_opens_at", "reg_url"}
     assert event.fields["reg_closes_at"].value == "2026-10-27"
     assert event.fields["reg_closes_at_year_stated"].value is False
+
+
+# forge.sphere-intelligence.eu, 2026-10-19: "11–13 November 2026" did not name the 11th.
+@pytest.mark.parametrize(
+    ("text", "named", "within", "not_named"),
+    [
+        ("11–13 November 2026", ["2026-11-11", "2026-11-13"], ["2026-11-12"], ["2026-11-14"]),
+        ("11th - 13th Nov 2026", ["2026-11-11", "2026-11-13"], ["2026-11-12"], ["2026-11-10"]),
+        ("vom 11. bis 13. November 2026", ["2026-11-11"], ["2026-11-12"], ["2026-11-14"]),
+        ("11.-13.11.2026", ["2026-11-11", "2026-11-13"], ["2026-11-12"], ["2026-11-14"]),
+        ("November 11-13, 2026", ["2026-11-11", "2026-11-13"], ["2026-11-12"], ["2026-11-14"]),
+        ("Nov 11 to 13, 2026", ["2026-11-11"], ["2026-11-12"], ["2026-11-14"]),
+        (
+            "30. Oktober bis 2. November 2026",
+            ["2026-10-30", "2026-11-02"],
+            ["2026-11-01"],
+            ["2026-10-29", "2026-11-03"],
+        ),
+        ("4 and 11 November 2026", ["2026-11-04", "2026-11-11"], [], ["2026-11-05"]),
+        ("18-20 Uhr, 5. November 2026", ["2026-11-05"], [], ["2026-11-18", "2026-11-19"]),
+    ],
+)
+def test_a_day_range_names_its_first_and_last_day_and_holds_the_days_between(
+    text, named, within, not_named
+):
+    for day in named:
+        assert names_date(day, text) == (True, True), day
+        assert names_date(day, text, within=True) == (True, True), day
+    for day in within:
+        assert names_date(day, text)[0] is False, day
+        assert names_date(day, text, within=True) == (True, True), day
+    for day in not_named:
+        assert names_date(day, text, within=True)[0] is False, day
 
 
 def test_ticket_key_merges_and_wins_registration_over_aggregator():
