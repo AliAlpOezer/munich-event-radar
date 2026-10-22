@@ -18,8 +18,10 @@ SELECT
     e.updated_at,
     COALESCE(e.updated_at < last_ok_run_at(), false) AS stale,
     e.fields,
-    -- An image on 3 or more events is a site's share image, not an event cover.
+    -- An image on 3 or more events is a site's share image, not an event cover, and an SVG is
+    -- a logo or a date badge.
     CASE WHEN count(*) OVER (PARTITION BY e.fields #>> '{image,value}') < 3
+        AND e.fields #>> '{image,value}' !~* '[.]svg([?#]|$)'
         THEN e.fields #>> '{image,value}' END AS cover,
     s.sources,
     s.organiser_ids

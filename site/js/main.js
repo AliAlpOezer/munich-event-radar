@@ -111,6 +111,13 @@ function wire() {
   $("add-event").addEventListener("click", (e) => openEventForm(e.currentTarget));
   $("account-button").addEventListener("click", (e) => openAccount(e.currentTarget));
   /* A cover that fails to load leaves the colour tile behind it, or no cover in the drawer. */
+  document.addEventListener("load", (e) => {
+    if (!e.target.matches?.(".cover img")) return;
+    const { classList } = e.target.parentElement;
+    classList.add("loaded");
+    // An image over three times as wide as tall is a wordmark; cropped to a square it reads as nothing.
+    if (e.target.naturalWidth > 3 * e.target.naturalHeight) classList.add("wide");
+  }, true);
   document.addEventListener("error", (e) => {
     if (e.target.matches?.(".cover img")) e.target.remove();
     else if (e.target.matches?.(".drawer-cover img")) e.target.parentElement.remove();

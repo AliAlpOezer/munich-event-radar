@@ -510,7 +510,12 @@ input[type="search"]:focus, select:focus { border-color: var(--accent); outline:
   box-shadow: inset 0 0 0 1px rgb(20 38 79 / 0.08);
   align-self: center;
 }
-.cover img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; background: var(--surface); }
+/* The image shows once loaded, over the tile: a logo drawn for a dark ground, such as a white one
+   on a transparent ground, keeps the tile's colour behind it. */
+.cover img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; opacity: 0; transition: opacity 0.2s; }
+.cover.loaded { color: transparent; text-shadow: none; }
+.cover.loaded img { opacity: 1; }
+.cover.wide img { object-fit: contain; padding: 4px; }
 .cover.t1 { background: linear-gradient(135deg, #1d5fbf, #4a98e6); }
 .cover.t2 { background: linear-gradient(135deg, #14264f, #1d5fbf); }
 .cover.t3 { background: linear-gradient(135deg, #d9541e, #f6a23c); }
