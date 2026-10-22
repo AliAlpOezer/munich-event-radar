@@ -7,7 +7,7 @@ import re
 import threading
 import time
 from contextlib import contextmanager
-from datetime import UTC, date, datetime
+from datetime import UTC, datetime
 from pathlib import Path
 
 import httpx
@@ -99,9 +99,7 @@ def test_a_drain_of_one_kind_leaves_the_other_kinds_work_alone(store, profile):
     # Event intakes are drained in a job of their own, beside a long organisation intake.
     profiling = _insert(store, "profiling")
     organisation = _insert(store, "queued")
-    event = store.intakes.create_event(
-        "https://example.org/events/ai-night", date.today(), "Munich"
-    )
+    event = store.intakes.create_event("https://example.org/events/ai-night")
     service = IntakeService(store, profile)
     worked: list[int] = []
 

@@ -8,12 +8,12 @@ import * as api from "./api.js";
 import * as board from "./board.js";
 import { $, esc, skeleton } from "./dom.js";
 import { fillDrawer, isOpen, setHeading, showDrawer } from "./drawer.js";
-import { DROP_LABEL, TIER_MEANING, TIERS } from "./facts.js";
+import { DROP_LABEL, TIER_MEANING, TIERS, venueText, when } from "./facts.js";
 import {
-  FINAL, STEPS, candidates, checked, found, isEvent, label, needsDay, pageName, recent, stepMarks, title,
+  FINAL, STEPS, candidates, checked, found, isEvent, label, awaitsAdmin, pageName, recent, stepMarks, title,
 } from "./intake-facts.js";
 import { state } from "./state.js";
-import { munich, today } from "./time.js";
+import { munich } from "./time.js";
 
 const POLL_MS = 2000;
 let timer = null;
@@ -90,17 +90,13 @@ export function openEventForm(from, given = {}) {
   clearTimeout(timer);
   showDrawer({ mode: "event-form", title: "Add an event", hash: "#add-event", from });
   fillDrawer(`
-    <p class="note">Give the event's own page, and the day and the place it names. The radar reads the page and
-      checks that it names that day and place, and that the event is about AI, startups, careers or tech.
+    <p class="note">Give the event's own page. The radar reads its day and place from the page and checks that
+      the event is still ahead, in Munich and about AI, startups, careers or tech.
       Within minutes it is on the board, with what its page says.</p>
     <form class="form" id="event-form" novalidate>
       <label class="field"><span>Event page</span>
         <input type="url" name="url" required placeholder="https://lu.ma/your-event" autocomplete="url" inputmode="url"
           value="${esc(given.url)}"></label>
-      <label class="field"><span>Day <span class="hint">the day it takes place, or one of its days</span></span>
-        <input type="date" name="day" required min="${today()}" value="${esc(given.day)}"></label>
-      <label class="field"><span>Place <span class="hint">as the page names it: the venue or the city</span></span>
-        <input type="text" name="place" required maxlength="200" placeholder="Werk1, Munich" value="${esc(given.place)}"></label>
       <p class="form-error" id="event-error" role="alert" hidden></p>
       <div class="row-actions"><button type="submit" class="btn primary">Check and add</button></div>
     </form>`);
@@ -157,12 +153,8 @@ async function submitEvent(e) {
   const error = $("event-error");
   error.hidden = true;
   const url = address(fields.url.value);
-  const day = fields.day.value;
-  const place = fields.place.value.trim();
   if (!url) return refuse(error, fields.url, "Enter the event's page.");
-  if (!day) return refuse(error, fields.day, "Enter the day the event takes place.");
-  if (!place) return refuse(error, fields.place, "Enter the place the page names.");
-  await send(form, error, () => api.addEvent({ url, day, place }));
+  await send(form, error, () => api.addEvent({ url }));
 }
 
 function profileCard(profile) {
@@ -201,21 +193,15 @@ function decision(intake) {
     <p class="form-error" id="decide-error" role="alert" hidden></p></section>`;
 }
 
-/* An admin's decision on an event the web search found: approving needs the day and the
-   place its page names, which the check then looks for (ADR 0016). */
+/* An admin's decision on an event the web search found, or one an admin turned down:
+   approving checks its page like an added event's (ADR 0019). */
 function eventDecision(intake) {
   if (!state.admin) return "";
   const review = intake.state === "review";
-  const note = review ? "The daily web search found this page. Nothing has been fetched yet. Give the day and the place it names to check it and add the event."
-    : "An admin decided not to add it. Give the day and the place it names to add it anyway.";
+  const note = review ? "The daily web search found this page. Nothing has been fetched yet. Approve it to check the page and add the event."
+    : "An admin decided not to add it. If that was wrong, you can still add it.";
   return `<section><h3>${review ? "Your decision" : "Not added"}</h3>
     <p class="note">${note}</p>
-    <form class="form" id="decide-form" novalidate>
-      <label class="field"><span>Day <span class="hint">the day it takes place, or one of its days</span></span>
-        <input type="date" name="day" required min="${today()}"></label>
-      <label class="field"><span>Place <span class="hint">as the page names it: the venue or the city</span></span>
-        <input type="text" name="place" required maxlength="200" placeholder="Werk1, Munich"></label>
-    </form>
     <div class="row-actions"><button type="button" class="btn primary" data-decide="approve">${review ? "Check and add" : "Add anyway"}</button>
       ${review ? `<button type="button" class="btn" data-decide="reject">Reject</button>` : ""}</div>
     <p class="form-error" id="decide-error" role="alert" hidden></p></section>`;
@@ -248,12 +234,13 @@ function eventResult(intake) {
   }
   const heading = r.already ? "Already on the radar" : "On the board";
   if (!r.event_key) return `<section><h3>${heading}</h3><p class="note">The radar reads this page already; it shows no event now.</p></section>`;
-  const shown = state.events.some((ev) => ev.key === r.event_key);
+  const event = state.events.find((ev) => ev.key === r.event_key);
+  const facts = event ? [when(event), venueText(event)].filter(Boolean).join(" · ") : "";
   const where = r.tier
     ? `<p class="tier-line"><span class="tier-badge ${esc(r.tier)}">${esc(r.tier)}</span><span>${esc(TIER_MEANING[r.tier])}</span></p>`
     : `<p class="tier-line"><span class="chip warn">${esc(DROP_LABEL[r.drop_reason] || "Not shown")}</span></p>`;
-  return `<section><h3>${heading}</h3>${where}
-    ${shown ? `<div class="row-actions"><a class="btn primary" href="#event-${esc(r.event_key)}">Show the event</a></div>` : ""}</section>`;
+  return `<section><h3>${heading}</h3>${where}${facts ? `<p class="note">${esc(facts)}</p>` : ""}
+    ${event ? `<div class="row-actions"><a class="btn primary" href="#event-${esc(r.event_key)}">Show the event</a></div>` : ""}</section>`;
 }
 
 /* An admin's removal of an added event, confirmed in a second step. */
@@ -272,7 +259,7 @@ function render(intake) {
   const symbol = { done: "✓", stopped: "?", failed: "!" };
   const steps = STEPS[isEvent(intake) ? "event" : "organisation"].map(([, text], i) =>
     `<li class="${marks[i]}"><span class="mark" aria-hidden="true">${symbol[marks[i]] || ""}</span><span>${esc(text)}</span></li>`).join("");
-  const outcome = needsDay(intake) ? eventDecision(intake)
+  const outcome = awaitsAdmin(intake) ? eventDecision(intake)
     : isEvent(intake) ? eventResult(intake) + removal(intake)
     : decision(intake) + (intake.result ? organisationResult(intake.result) : "") + profileCard(intake.profile);
   const log = intake.log.length
@@ -289,7 +276,7 @@ function render(intake) {
   }
   document.querySelector("[data-remove]")?.addEventListener("click", () => confirmRemoval(intake));
   document.querySelector("[data-again]")?.addEventListener("click", (e) =>
-    openEventForm(e.currentTarget, { url: intake.url, day: intake.starts_on, place: intake.place }));
+    openEventForm(e.currentTarget, { url: intake.url }));
 }
 
 export async function openIntake(id, from) {
@@ -334,8 +321,7 @@ async function refresh(id) {
 
 async function decide(intake, approve) {
   try {
-    const form = approve ? $("decide-form") : null;
-    await api.decide(intake.id, approve, form?.elements.day.value || null, form?.elements.place.value || null);
+    await api.decide(intake.id, approve);
     clearTimeout(timer);
     await refresh(intake.id);
   } catch (error) {

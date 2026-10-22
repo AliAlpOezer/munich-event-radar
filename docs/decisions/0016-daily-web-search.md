@@ -1,6 +1,6 @@
 # ADR 0016: A daily web search into the review queue
 
-**Status:** DECIDED, built on branch `web-search`, not merged
+**Status:** DECIDED, merged; approving a found event without its day and place amended by ADR 0019
 **Date:** 2026-10-19
 **Inputs:** Alp's idea (c) and answers of 2026-10-19: a daily web search through Tavily; a
 page the radar does not know goes to the admin review queue, never straight to the board;

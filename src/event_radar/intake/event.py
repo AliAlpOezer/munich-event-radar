@@ -1,7 +1,7 @@
 """Adding one event from its page (ADR 0014): one fetch of the page and a check that needs
 no LLM, then the page as a source of its own, without an organiser, judged like any other.
-The day and place the person gives only test the page; they never become the event's
-fields."""
+The person gives only the URL; the check reads the event's day and place from the page
+(ADR 0019)."""
 
 import re
 from collections.abc import Callable
@@ -13,7 +13,7 @@ import httpx
 from .. import html
 from ..extract import Extractor, judgments
 from ..extract.router import AllModelsFailed, BudgetExhausted, DailyCapReached, Router
-from ..extract.verify import names_date
+from ..extract.verify import names_coming_day
 from ..fetch import Fetched, Fetcher
 from ..harvester import EVENT_PAGE_HOURS, Harvester
 from ..judge import Judge
@@ -42,9 +42,6 @@ DROPPED = {
     OFF_TOPIC: "The page is not about AI, startups, careers or tech.",
     AUDIENCE: "The event is for children, school pupils or families; the radar is for adults.",
 }
-# Words of a place that name none.
-FILLER = frozenset("the and und der die das bei near von for für with mit".split())
-MUNICH = "münchen"
 
 
 class Refused(Exception):
@@ -63,34 +60,31 @@ def one_event(result: ParseResult) -> ParsedEvent | None:
     return result.events[0] if result.events else None
 
 
-def check_day(day: date, fields: dict, text: str) -> None:
-    """Check 5: the event's local days, start to end, hold `day`; without a stated start,
-    the page text names that day, or a range of days that holds it, and its year."""
+def check_day(fields: dict, text: str, today: date) -> None:
+    """Check 5: the event has a day that is not past, so an event passes while any of its
+    days is ahead (ADR 0019): the structured event's last day, its end or else its start;
+    without a stated start, a day the page text names with its year, alone or in a range."""
     start = local_date(field_value(fields, "starts_at"))
     if start:
-        end = max(start, local_date(field_value(fields, "ends_at")) or start)
-        if not start <= day.isoformat() <= end:
-            when = start if end == start else f"{start} to {end}"
-            raise Refused(f"The page says the event is on {when}, not {day.isoformat()}.")
+        if max(start, local_date(field_value(fields, "ends_at")) or start) < today.isoformat():
+            raise Refused(DROPPED["past"])
         return
-    named, year_stated = names_date(day.isoformat(), text, within=True)
-    if not (named and year_stated):
-        raise Refused(f"The page does not name {day.day} {day:%B %Y}.")
+    if not names_coming_day(text, today):
+        raise Refused("The page names no coming day for the event, with its year.")
 
 
-def _place_words(text: str, cities: frozenset[str]) -> set[str]:
-    return {MUNICH if w in cities else w for w in re.findall(r"[^\W_]+", text.lower())}
-
-
-def check_place(place: str, fields: dict, text: str, cities: frozenset[str]) -> None:
-    """Check 6: a word of the given place is on the page, in the event's venue, address or
-    city or in its text, and every Munich name counts as one. One word is enough: the day
-    already ties the page to the event, and the judge checks that it is in Munich."""
-    given = _place_words(place, cities)
-    wanted = {w for w in given if w not in FILLER and not w.isdigit()} or given
-    stated = " ".join(str(field_value(fields, n) or "") for n in ("venue", "address", "city"))
-    if not wanted & _place_words(f"{stated}\n{text}", cities):
-        raise Refused(f"The page does not name {place}.")
+def check_place(fields: dict, text: str, profile: Profile) -> None:
+    """Check 6: a page without a structured event names Munich in its text, by a Munich
+    name of `profile.yaml` or a Munich postcode. A structured event's place is the judge's
+    at check 7, which keeps one the page does not state (ADR 0019)."""
+    if fields:
+        return
+    words = re.findall(r"[^\W_]+", text.lower())
+    if not any(
+        w in profile.cities or (len(w) == 5 and w.isdigit() and w.startswith(profile.postal_codes))
+        for w in words
+    ):
+        raise Refused("The page does not say the event is in Munich.")
 
 
 def check_relevance(
@@ -234,13 +228,14 @@ class EventIntake:
             raise Refused(
                 "The page shows no text without JavaScript; give the event's ticket page instead."
             )
-        check_day(row["starts_on"], fields, text)
-        check_place(row["place"], fields, text, self.profile.cities)
-        check_relevance(self.judge, fields, text, needs_llm, datetime.now(UTC), judgment)
+        now = datetime.now(UTC)
+        check_day(fields, text, now.date())
+        check_place(fields, text, self.profile)
+        check_relevance(self.judge, fields, text, needs_llm, now, judgment)
         self.log(
             row["id"],
             "checking",
-            "The page names the day and the place, and the event is one the radar shows.",
+            "The page names a coming day, and the event is one the radar shows.",
             "ok",
         )
 
@@ -296,12 +291,13 @@ class EventIntake:
         if len(groups) != 1:
             raise Refused("The LLM found no single event on the page; give the event's own page.")
         fields = groups[0].fields
-        check_day(row["starts_on"], fields, text)
-        check_place(row["place"], fields, text, self.profile.cities)
+        now = datetime.now(UTC)
+        check_day(fields, text, now.date())
+        check_place(fields, text, self.profile)
         keys = [o.judgment_key for o in groups[0].ranked() if o.judgment_key]
         answers = self.store.judgments.answers(keys, judgments.VERSION)
         judgment = judgments.telling(next((answers[k] for k in keys if k in answers), None))
-        check_relevance(self.judge, fields, text, False, datetime.now(UTC), judgment)
+        check_relevance(self.judge, fields, text, False, now, judgment)
 
     def _done(self, intake_id: int, event: dict | None, *, already: bool) -> None:
         if event is None:
