@@ -6,6 +6,7 @@ import json
 import re
 import threading
 import time
+from contextlib import contextmanager
 from datetime import UTC, date, datetime
 from pathlib import Path
 
@@ -118,26 +119,73 @@ def test_a_drain_of_one_kind_leaves_the_other_kinds_work_alone(store, profile):
     assert store.intakes.queued(IntakeKind.ORGANISATION) == 0
 
 
+class _Counting:
+    """A connection that notes every statement it sends: from a runner in the US each one
+    is a round trip, and an executemany goes as one pipeline."""
+
+    def __init__(self, db, asked: list):
+        self.db, self.asked = db, asked
+
+    def execute(self, query, *args):
+        self.asked.append(query)
+        return self.db.execute(query, *args)
+
+    def executemany(self, query, *args):
+        self.asked.append(query)
+        return self.db.executemany(query, *args)
+
+    def cursor(self):
+        return _Counting(self.db.cursor(), self.asked)
+
+    def __getattr__(self, name):
+        return getattr(self.db, name)
+
+
 def test_opening_a_store_that_is_up_to_date_asks_one_question(store):
-    # Every job opens the store; from a runner in the US each statement is a round trip.
-    class Counting:
-        def __init__(self, db):
-            self.db, self.queries = db, []
-
-        def execute(self, query, *args):
-            self.queries.append(query)
-            return self.db.execute(query, *args)
-
-        def __getattr__(self, name):
-            return getattr(self.db, name)
-
+    # Every job opens the store.
     with store.tx() as db:
-        counting = Counting(db)
-        database._migrate(counting, store.schema, store.api)
-        assert len(counting.queries) == 1
+        asked = []
+        database._migrate(_Counting(db, asked), store.schema, store.api)
+        assert len(asked) == 1
         db.execute("DELETE FROM api_build")
-        database._migrate(Counting(db), store.schema, store.api)
+        database._migrate(_Counting(db, []), store.schema, store.api)
         assert db.execute("SELECT count(*) AS n FROM api_build").fetchone()["n"] == 1
+
+
+def test_judging_a_board_of_twelve_events_asks_no_more_than_one_of_two(store, profile, monkeypatch):
+    # An added event has the whole board judged again while its person waits.
+    pages = {
+        f"/events/{n}": lambda n=n: _event(
+            f"Talk on AI agents, part {n}" if n % 2 else f"Salsa night {n}",
+            f"2030-11-{n + 1:02d}T18:00:00+01:00",
+        )
+        for n in range(12)
+    }
+    shown = dict(list(pages.items())[:2])
+    harvester, _ = _site(store, profile, shown)
+    real = store.tx
+
+    @contextmanager
+    def counting():
+        with real() as db:
+            yield _Counting(db, asked)
+
+    def judged() -> int:
+        harvester.harvest_due()
+        asked.clear()
+        with monkeypatch.context() as patch:
+            patch.setattr(store, "tx", counting)
+            harvester.judge_events()
+        return len(asked)
+
+    asked: list = []
+    two = judged()
+    for path in list(pages)[2:]:
+        shown[path] = pages[path]
+        store.sources.add(f"https://example.org{path}", "event_page", "OWN", 72, "test")
+    assert judged() == two
+    events = store.events.all()
+    assert len(events) == 6 and {e["tier"] for e in events} & {"A", "B"}
 
 
 def test_a_second_holder_of_a_lock_waits_for_the_first(store):

@@ -1,4 +1,5 @@
 import uuid
+from dataclasses import dataclass
 
 from psycopg import Connection, sql
 from psycopg.types.json import Jsonb
@@ -20,26 +21,20 @@ class Events(Repository):
     def save(self, judged: list[JudgedEvent]) -> dict[str, int]:
         """Write each event under the key of the oldest event sharing an alias; the
         other events it now spans merge into it. An event off topic or for another
-        audience is not written, and the events it spans are deleted (ADRs 0011, 0012)."""
+        audience is not written, and the events it spans are deleted (ADRs 0011, 0012).
+        The statements do not grow with the board, since each is a round trip from a runner
+        far from the database: one lookup, the decisions in `_plan`, then batched writes."""
         stamp = now_iso()
-        counts = {"new": 0, "updated": 0, "merged": 0, "deleted": 0}
         with self.database.tx() as db:
-            for event in judged:
-                found = db.execute(
-                    "SELECT DISTINCT e.key, e.first_seen FROM event_alias a JOIN event e"
-                    " ON e.key = a.event_key WHERE a.alias = ANY(%s) ORDER BY e.first_seen",
-                    (list(event.aliases),),
-                ).fetchall()
-                if event.verdict.drop_reason in NOT_STORED:
-                    counts["deleted"] += _delete(db, [r["key"] for r in found])
-                    continue
-                key = found[0]["key"] if found else uuid.uuid4().hex[:12]
-                for loser in found[1:]:
-                    _merge(db, loser["key"], into=key)
-                    counts["merged"] += 1
-                counts["updated" if found else "new"] += 1
-                verdict = event.verdict
-                db.execute(
+            stored = db.execute(
+                "SELECT a.alias, e.key, e.first_seen FROM event_alias a JOIN event e"
+                " ON e.key = a.event_key WHERE a.alias = ANY(%s)",
+                ([a for event in judged for a in event.aliases],),
+            ).fetchall()
+            plan = _plan(judged, stored, stamp)
+            # Survivors first, so a merge always moves into a row that exists.
+            if plan.rows:
+                db.cursor().executemany(
                     "INSERT INTO event (key, fields, merge_basis, tier, tier_reasons, drop_reason,"
                     " sources, first_seen, updated_at, judgment_key)"
                     " VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)"
@@ -48,24 +43,17 @@ class Events(Repository):
                     " tier_reasons = excluded.tier_reasons, drop_reason = excluded.drop_reason,"
                     " sources = excluded.sources, updated_at = excluded.updated_at,"
                     " judgment_key = excluded.judgment_key",
-                    (
-                        key,
-                        Jsonb(event.fields),
-                        event.merge_basis,
-                        verdict.tier,
-                        Jsonb(verdict.reasons),
-                        verdict.drop_reason,
-                        Jsonb(sorted(event.sources)),
-                        stamp,
-                        stamp,
-                        event.judgment_key,
-                    ),
+                    plan.rows,
                 )
+            for loser, into in plan.merges:
+                _merge(db, loser, into=into)
+            if plan.deleted:
+                _delete(db, plan.deleted)
+            if plan.aliases:
                 db.cursor().executemany(
-                    "INSERT INTO event_alias VALUES (%s, %s) ON CONFLICT DO NOTHING",
-                    [(a, key) for a in event.aliases],
+                    "INSERT INTO event_alias VALUES (%s, %s) ON CONFLICT DO NOTHING", plan.aliases
                 )
-        return counts
+        return plan.counts
 
     def star_counts(self, groups: list[set[str]]) -> list[int]:
         """For each set of aliases, the accounts that starred a stored event one of them
@@ -121,6 +109,76 @@ class Events(Repository):
                 " SELECT e.*, COALESCE(u.status, 'none') AS user_status FROM event e"
                 " LEFT JOIN owner_state u ON u.event_key = e.key"
             ).fetchall()
+
+
+@dataclass
+class _Plan:
+    rows: list[tuple]  # the events written, in the columns of `event`
+    merges: list[tuple[str, str]]  # stored loser and survivor, in the order they merge
+    deleted: list[str]
+    aliases: list[tuple[str, str]]  # aliases the store does not have yet, with their event
+    counts: dict[str, int]
+
+
+def _plan(judged: list[JudgedEvent], stored: list[dict], stamp: str) -> _Plan:
+    """What writing `judged` one event after the other would leave, given the stored events
+    their aliases name: each event looks up the events its aliases name as the writes before
+    it left them, and the oldest wins. Among events as old, a stored one wins over one
+    written now, so a merge never moves stars into a row that was not there."""
+    owner = {r["alias"]: r["key"] for r in stored}
+    present = set(owner)  # stored aliases: a merge moves them, a delete takes them
+    first_seen = {r["key"]: r["first_seen"] for r in stored}
+    counts = {"new": 0, "updated": 0, "merged": 0, "deleted": 0}
+    rows: dict[str, tuple] = {}
+    merges: list[tuple[str, str]] = []
+    deleted: list[str] = []
+
+    def leave(key: str, into: str | None = None) -> None:
+        """`key` merges into `into`, its aliases with it, or is deleted with them."""
+        rows.pop(key, None)
+        for alias, k in list(owner.items()):
+            if k != key:
+                continue
+            if into is None:
+                del owner[alias]
+                present.discard(alias)
+            else:
+                owner[alias] = into
+
+    for event in judged:
+        found = sorted(
+            {owner[a] for a in event.aliases if a in owner},
+            key=lambda k: (k not in first_seen, first_seen.get(k), k),
+        )
+        if event.verdict.drop_reason in NOT_STORED:
+            for key in found:
+                leave(key)
+            deleted += found
+            counts["deleted"] += len(found)
+            continue
+        key = found[0] if found else uuid.uuid4().hex[:12]
+        for loser in found[1:]:
+            if loser in first_seen:
+                merges.append((loser, key))
+            leave(loser, into=key)
+            counts["merged"] += 1
+        counts["updated" if found else "new"] += 1
+        owner |= dict.fromkeys(event.aliases, key)
+        verdict = event.verdict
+        rows[key] = (
+            key,
+            Jsonb(event.fields),
+            event.merge_basis,
+            verdict.tier,
+            Jsonb(verdict.reasons),
+            verdict.drop_reason,
+            Jsonb(sorted(event.sources)),
+            stamp,
+            stamp,
+            event.judgment_key,
+        )
+    aliases = [(a, k) for a, k in owner.items() if a not in present]
+    return _Plan(list(rows.values()), merges, deleted, aliases, counts)
 
 
 def _delete(db: Connection, keys: list[str]) -> int:
