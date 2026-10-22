@@ -263,7 +263,7 @@ class Harvester:
             now = datetime.now(UTC)
             focused = self.store.sources.focused_urls()
             startups = self.store.sources.startup_urls()
-            judged = []
+            judged, hot = [], set()
             groups = resolve(self.store.observations.all())
             stars = self.store.events.star_counts([g.aliases for g in groups])
             keys = [_judgment_keys(g) for g in groups]
@@ -300,7 +300,9 @@ class Harvester:
                 owed = bool(candidates) and candidates[0] not in answers
                 self.counts["judgment_pending"] += owed and self._owes_judgment(group, now)
                 if verdict.tier in {"A", "B"}:
-                    self.store.sources.set_cadence(sorted(urls), HOT_HOURS)
+                    hot |= urls
+            if hot:
+                self.store.sources.set_cadence(sorted(hot), HOT_HOURS)
             self.counts.update(self.store.events.save(judged))
 
 
