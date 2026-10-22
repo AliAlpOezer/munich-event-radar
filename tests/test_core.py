@@ -23,7 +23,7 @@ from event_radar.html import image_url
 from event_radar.judge import Judge
 from event_radar.model import Evidence, Kind, Observation, ParsedEvent, SourceClass
 from event_radar.parse import parse
-from event_radar.platforms import platform_key
+from event_radar.platforms import canonical, platform_key
 from event_radar.profile import Profile
 from event_radar.resolve import local_minute, resolve
 from event_radar.store import Store
@@ -292,6 +292,81 @@ def test_fuzzy_merge_when_short_title_stems_are_inside_long_title():
     [group] = resolve([badw, tum])
     assert group.merge_basis == "fuzzy"
     assert group.fields["starts_at"]["value"] == "2026-10-20T18:00:00+02:00"
+
+
+def test_events_listed_on_one_page_stay_apart_though_each_is_given_the_pages_url():
+    # Hosted on 2026-10-22, an LLM gave each of eleven events on MDSI's listing the
+    # listing's URL, and they resolved into one event (ADR 0020 D1).
+    listing = "https://www.example-institute.org/en/events/"
+    fair = "https://www.example-university.de/en/events/details/career-fair"
+
+    def item(n, title, start, model="m"):
+        fields = {"title": title, "starts_at": start, "event_url": listing}
+        return Observation(
+            10 + n,
+            "h-listing",
+            listing,
+            SourceClass.OWN,
+            f"llm:{model}@events-v2",
+            [],
+            {k: Evidence(v) for k, v in fields.items()},
+            "2026-10-22T09:00:00",
+        )
+
+    listed = [
+        item(0, "Munich Career Fair AI & Data Science 2026", "2026-10-29"),
+        item(1, "Fit for TUMorrow Day 2026", "2026-10-30"),
+        item(2, "Data Visualization in R", "2026-11-17"),
+        # Another model read one event there: the page is a listing all the same.
+        item(3, "Fit for TUMorrow Day 2026", "2026-10-30", model="n"),
+    ]
+    page = obs(
+        1,
+        fair,
+        SourceClass.OWN,
+        title="Munich Career Fair AI and Data Science",
+        starts_at="2026-10-29T14:00:00+01:00",
+        event_url=fair,
+    )
+    groups = {g.fields["title"]["value"]: g for g in resolve([*listed, page])}
+    assert sorted(len(g.observations) for g in groups.values()) == [1, 2, 2]
+    # The one event of a page is still known by the page's URL.
+    assert f"url:{canonical(fair)}" in groups["Munich Career Fair AI and Data Science"].aliases
+    assert all(f"url:{canonical(listing)}" not in g.aliases for g in groups.values())
+
+
+def test_an_event_read_on_a_page_without_its_day_is_the_one_there_with_its_title_and_a_day():
+    # Hosted on 2026-10-22, one read of a listing gave "Industrial Edge Workshops for
+    # Startups and SMEs" its day and another did not (ADR 0020 D1).
+    listing = "https://www.example-centre.de/en/events/p2"
+
+    def item(n, model, title, start=None):
+        fields = {"title": title, "event_url": listing} | ({"starts_at": start} if start else {})
+        return Observation(
+            20 + n,
+            f"h-{model}",
+            listing,
+            SourceClass.OWN,
+            f"llm:{model}@events-v2",
+            [],
+            {k: Evidence(v) for k, v in fields.items()},
+            "2026-10-22T09:00:00",
+        )
+
+    groups = resolve(
+        [
+            item(0, "m", "Industrial Edge Workshops", "2026-11-06"),
+            item(1, "m", "Opportunity Hunters Talks", "2026-11-12"),
+            item(2, "m", "Opportunity Hunters Talks", "2026-11-19"),
+            item(3, "n", "Industrial Edge Workshops"),
+            item(4, "n", "Opportunity Hunters Talks"),
+        ]
+    )
+    # A series leaves the read without a day nothing to be.
+    assert sorted((g.fields["title"]["value"], len(g.observations)) for g in groups) == [
+        ("Industrial Edge Workshops", 2),
+        *[("Opportunity Hunters Talks", 1)] * 3,
+    ]
 
 
 def test_fuzzy_merge_needs_two_stems_and_compatible_start_times():

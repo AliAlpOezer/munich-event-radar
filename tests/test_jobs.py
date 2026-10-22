@@ -7,6 +7,7 @@ import re
 import threading
 import time
 from contextlib import contextmanager
+from dataclasses import replace
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -753,10 +754,13 @@ def _star(store, key: str, accounts: list) -> None:
         )
 
 
-def test_stars_on_events_that_merge_count_each_account_once(store, users):
-    # ADR 0015 D4: every stored event the aliases name, counted as `Events.save` merges them.
+def test_an_event_has_the_stars_and_judgment_of_the_stored_events_it_carries_on(store, users):
+    # ADR 0015 D4 and ADR 0020: the stored events `Events.save` leaves it, merged.
     store.events.save(
-        [JudgedEvent({alias}, {}, "url", Verdict("C", ()), []) for alias in ("obs:a", "obs:b")]
+        [
+            replace(JudgedEvent({alias}, {}, "url", Verdict("C", ()), []), judgment_key=judged)
+            for alias, judged in (("obs:a", None), ("obs:b", "j-b"), ("obs:c", "j-c"))
+        ]
     )
     with store.tx() as db:
         rows = db.execute("SELECT alias, event_key FROM event_alias").fetchall()
@@ -764,7 +768,18 @@ def test_stars_on_events_that_merge_count_each_account_once(store, users):
     accounts = [users() for _ in range(4)]
     _star(store, keys["obs:a"], accounts[:3])
     _star(store, keys["obs:b"], accounts)
-    assert store.events.star_counts([{"obs:a", "obs:b"}, {"obs:a"}, {"obs:c"}]) == [4, 3, 0]
+    merged, new = store.events.continued([({"obs:a", "obs:b"}, set(), {}), ({"obs:d"}, set(), {})])
+    assert merged.stars == 4 and merged.judgment_key == "j-b"
+    assert new.keys == () and new.stars == 0 and new.judgment_key is None
+    # A group naming less of a stored event than another group has none of it.
+    store.events.save([JudgedEvent({"obs:e", "obs:e2", "obs:f"}, {}, "url", Verdict("C", ()), [])])
+    glued = store.events.known({"obs:e"})["key"]
+    _star(store, glued, accounts[:2])
+    apart, taken = store.events.continued(
+        [({"obs:f"}, set(), {}), ({"obs:e", "obs:e2"}, set(), {})]
+    )
+    assert apart.keys == () and apart.stars == 0
+    assert taken.keys == (glued,) and taken.stars == 2
 
 
 def test_an_event_with_five_stars_rises_to_b_at_the_next_judging(store, profile, users):

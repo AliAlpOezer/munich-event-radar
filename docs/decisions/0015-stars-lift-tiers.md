@@ -1,6 +1,7 @@
 # ADR 0015: Stars lift an event's tier
 
-**Status:** DECIDED, built on branch `star-popularity`, not merged
+**Status:** DECIDED, built on branch `star-popularity`, not merged; D4 amended by ADR 0020
+D5 (2026-10-22)
 **Date:** 2026-10-19
 **Inputs:** Alp, 2026-10-18: "if lots of people (for example 10% for B Tier and 20% for A
 Tier), are adding events to their favorites, so that shows us that those events are
@@ -40,7 +41,7 @@ the last word on events people clearly want. Nobody learns who starred what.
 | 1 | Absolute counts: an event with 5 or more stars is at least B, with 10 or more A. The thresholds are a floor, so a C event with 10 stars is A | A share of accounts (Alp's first example): with a handful of accounts one star is a large share, and a growing user base would push events down without anyone unstarring. The larger of a count and a share: Alp chose "absolute only". One step per threshold (a C event with 10 stars only reaches B): the same ten people keeping it would count for less because the keyword rules missed it |
 | 2 | Stars lift only a tier the judge gave. A dropped event stays dropped; off-topic and children's events are not stored at all, so their stars go by cascade (ADRs 0011, 0012) | Lifting online-only or outside-Munich events: a star says someone wants to keep the event, not that it takes place in Munich in person |
 | 3 | The judge applies the rule (`Judge.judge(..., stars=n)`), so the stored tier, the 24 h cadence of A and B sources and the run summary all see it. The harvester reads the stars before judging | Lifting at read time in `api.events`: the stored and the shown tier would differ, the cadence would miss lifted events, and an invoker view cannot count other users' stars without a definer helper. A trigger on `star` that rewrites `event.tier`: a second writer of the tier, with the rule in SQL beside the judge's, and the next judge run would overwrite it |
-| 4 | An event's stars are the accounts that starred any stored event its observations' aliases name: the count `Events.save` leaves after merging them. Every account counts the same | Counting only the stored event with the oldest alias: a merge on this run would add stars the verdict did not see until the next run |
+| 4 | An event's stars are the accounts that starred any stored event its observations' aliases name: the count `Events.save` leaves after merging them. Every account counts the same. Amended by ADR 0020 D5: the stored events the event wins, since a stored event several events name goes to one of them | Counting only the stored event with the oldest alias: a merge on this run would add stars the verdict did not see until the next run |
 | 5 | The reason says "starred by 5 or more" or "starred by 10 or more", never the count | The exact count: ADR 0007 D2 kept counts private because a count of 1 says who; a threshold of 5 says no one |
 | 6 | The thresholds live in `profile.yaml` (`stars`) with the judge's other rules | Constants in code: every other tier rule is tuned in the profile |
 | 7 | A lift shows with the next judge run: the daily harvest (cron 04:17 UTC, often hours late) or the weekly browse | Judging on every star: the judge rebuilds all events from all observations; one job per click is a lot of runs for a tier that can wait a day |

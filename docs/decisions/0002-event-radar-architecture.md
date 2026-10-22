@@ -263,6 +263,9 @@ duplicate.
 **Rejected:** the platform ID as primary key (above); title plus date as key (German and
 English title variants).
 **Cost:** an alias table and merge and split handling.
+**Status (2026-10-22):** split handling is built by ADR 0020: a listing's URL names none of
+its events, and a stored event that several events name goes on as one of them. The alias
+exclusion in the risk table above was not built (ADR 0020 D1).
 
 ### D5. Precedence: TICKET over OWN over AGG, then parser over LLM, then newest
 Registration fields are never taken from an aggregator. An aggregator observation enqueues

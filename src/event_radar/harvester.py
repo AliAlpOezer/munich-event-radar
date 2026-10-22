@@ -265,14 +265,18 @@ class Harvester:
             startups = self.store.sources.startup_urls()
             judged, hot = [], set()
             groups = resolve(self.store.observations.all())
-            stars = self.store.events.star_counts([g.aliases for g in groups])
+            sources = [{o.url for o in g.observations} for g in groups]
+            carried = self.store.events.continued(
+                [(g.aliases, urls, g.fields) for g, urls in zip(groups, sources, strict=True)]
+            )
             keys = [_judgment_keys(g) for g in groups]
-            previous = self.store.events.judgment_keys([g.aliases for g in groups])
-            wanted = {k for each in keys for k in each} | set(filter(None, previous))
+            wanted = {k for each in keys for k in each} | {
+                c.judgment_key for c in carried if c.judgment_key
+            }
             answers = self.store.judgments.answers(wanted, judgments.VERSION)
             held = self.store.judgments.answers(wanted)
-            for group, starred, candidates, last in zip(groups, stars, keys, previous, strict=True):
-                urls = {o.url for o in group.observations}
+            for group, urls, stored, candidates in zip(groups, sources, carried, keys, strict=True):
+                last = stored.judgment_key
                 # An answer to an older question holds until the current one is answered.
                 used = next((k for k in [*candidates, last] if k in answers), None) or next(
                     (k for k in [*candidates, last] if k in held), None
@@ -283,7 +287,7 @@ class Harvester:
                     now,
                     ai_focus=bool(urls & focused),
                     startup_focus=bool(urls & startups),
-                    stars=starred,
+                    stars=stored.stars,
                     judgment=judgment,
                 )
                 judged.append(
