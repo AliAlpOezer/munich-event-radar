@@ -332,7 +332,9 @@ def handler(auth: Auth, postgrest_port: int, api_schema: str):
             elif not file.suffix and file.with_suffix(".html").is_file():
                 file = file.with_suffix(".html")  # Pages serves /privacy from privacy.html
             if not file.is_relative_to(SITE) or not file.is_file() or file.name == "_headers":
-                return self.send(404, b"Not found", {"Content-Type": "text/plain"})
+                # Pages answers a missing path with 404.html, not with the page.
+                headers = {"Content-Type": "text/html; charset=utf-8", **self.policy(path)}
+                return self.send(404, (SITE / "404.html").read_bytes(), headers)
             kind = TYPES.get(file.suffix) or mimetypes.guess_type(file.name)[0]
             headers = {"Content-Type": kind or "application/octet-stream", **self.policy(path)}
             headers.setdefault("Cache-Control", "no-cache")

@@ -18,6 +18,7 @@ event and lets you suggest an organisation.
 | `eval/golden.yaml` | The golden set the judge is scored against |
 | `tests/` | pytest on hand-written fixtures, and node tests for the page's pure modules |
 | `tools/devsite.py` | A local stand-in for Supabase |
+| `tools/share_image.py` | Draws `site/share.png`, the link preview, from `tools/share-image.html` |
 | `docs/decisions/` | ADRs, from the architecture (0002) to hosting (0004-0006) and stars (0007) |
 
 The golden eval replays frozen copies of third-party pages. They are not published here:
