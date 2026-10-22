@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import {
-  humanReason, isPast, isUpcoming, organiserNames, placeDay, registration, sortTime, venueText, when,
+  humanReason, isDropped, isPast, isUpcoming, organiserNames, placeDay, registration, sortTime, venueText, when,
 } from "../../site/js/facts.js";
 import { today } from "../../site/js/time.js";
 
@@ -33,6 +33,13 @@ test("an event is past after its last day, or when the judge says so", () => {
   assert.ok(!isPast(event({ starts_at: today() })));
   assert.ok(isPast(event({ starts_at: shift(5) }, { drop_reason: "past" })));
   assert.ok(!isUpcoming(event({ starts_at: shift(5) }, { drop_reason: "online_only" })));
+});
+
+test("an online event that has ended is past, not dropped", () => {
+  const ended = event({ starts_at: `${shift(-11)}T18:00:00+02:00` }, { drop_reason: "online_only" });
+  assert.ok(isPast(ended));
+  assert.ok(!isDropped(ended));
+  assert.ok(isDropped(event({ starts_at: shift(3) }, { drop_reason: "online_only" })));
 });
 
 test("the registration window in a few words", () => {

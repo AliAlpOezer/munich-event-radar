@@ -37,6 +37,13 @@ test("starred shows only the user's starred events, within the other filters", (
   assert.deepEqual(keys(events, { starred: true, q: "event c" }), ["c"]);
 });
 
+test("an online event that has ended shows with the past events, not the online ones", () => {
+  const online = (key, days) => ({ ...event(key, { tier: null, days }), drop_reason: "online_only" });
+  const both = [online("ended", -11), online("coming", 3)];
+  assert.deepEqual(keys(both, { dropped: true }), ["coming"]);
+  assert.deepEqual(keys(both, { past: true }), ["ended"]);
+});
+
 test("a remembered starred filter does not empty the board once logged out", () => {
   assert.deepEqual(keys(events, { starred: true }, false), keys(events, {}, false));
 });
