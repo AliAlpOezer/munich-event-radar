@@ -54,7 +54,8 @@ def _verdict(tier="B"):
 def board(store):
     org = store.organisers.add("Munich NLP", "luma.com/munichnlp", "seed", ai_focus=True)
     store.sources.add("https://luma.com/munichnlp", "listing", "TICKET", 24, "seed", org)
-    images = ["https://a.org/own.png"] + ["https://b.org/site.png"] * 3
+    images = ["https://a.org/own.png", "https://c.org/date_20261119p.svg"]
+    images += ["https://b.org/site.png"] * 3
     # As in a harvest, the run starts before it saves the events.
     run = store.runs.start()
     store.events.save(
@@ -69,7 +70,7 @@ def board(store):
             for i, image in enumerate(images)
         ]
     )
-    store.runs.finish(run, "ok", {"tier_B": 4})
+    store.runs.finish(run, "ok", {"tier_B": 5})
     return {e["fields"]["title"]["value"]: e["key"] for e in store.events.all()}
 
 
@@ -84,7 +85,7 @@ def test_anyone_reads_the_board(store, board):
         events = db.execute("SELECT * FROM events ORDER BY key").fetchall()
         [org] = db.execute("SELECT * FROM organisers").fetchall()
         me = db.execute("SELECT me()").fetchone()["me"]
-    assert len(events) == 4 and {e["user_status"] for e in events} == {"none"}
+    assert len(events) == 5 and {e["user_status"] for e in events} == {"none"}
     assert {e["starred"] for e in events} == {False}
     assert events[0]["sources"] == [
         {"url": "https://luma.com/munichnlp", "class": "TICKET", "organiser_id": org["id"]},
@@ -98,8 +99,9 @@ def test_the_events_view_derives_covers_organisers_and_staleness(store, board):
     with api(store) as db:
         rows = {r["key"]: r for r in db.execute("SELECT * FROM events").fetchall()}
     covers = {title: rows[key]["cover"] for title, key in board.items()}
-    # The image on three events is the site's share image, not a cover.
-    assert covers == {"E0": "https://a.org/own.png", "E1": None, "E2": None, "E3": None}
+    # An SVG is a logo or a date badge, and the image on three events is the site's share
+    # image: neither is a cover.
+    assert covers == {"E0": "https://a.org/own.png", "E1": None, "E2": None, "E3": None, "E4": None}
     [org] = store.organisers.all()
     assert all(r["organiser_ids"] == [org["id"]] for r in rows.values())
     assert not any(r["stale"] for r in rows.values())
