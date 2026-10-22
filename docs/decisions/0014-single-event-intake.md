@@ -1,6 +1,6 @@
 # ADR 0014: Adding a single event from its page
 
-**Status:** DECIDED, built on branch `event-intake`, not merged
+**Status:** DECIDED, merged; checks 5 and 6, the form and `api.suggest_event` amended by ADR 0019
 **Date:** 2026-10-18
 **Inputs:** Alp's request of 2026-10-18: anyone with an event's URL, giving its date and
 place, can add the event without its organisation, "still a fact check: fetch the page and

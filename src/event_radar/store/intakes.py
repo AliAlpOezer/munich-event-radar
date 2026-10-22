@@ -1,5 +1,3 @@
-from datetime import date
-
 from psycopg import sql
 from psycopg.types.json import Jsonb
 
@@ -21,15 +19,15 @@ class Intakes(Repository):
                 (url, events_url, name, stamp, stamp),
             ).fetchone()["id"]
 
-    def create_event(self, url: str, starts_on: date, place: str) -> int:
+    def create_event(self, url: str) -> int:
         """An event intake as `api.suggest_event` makes one, without its checks of the
-        caller (ADR 0014)."""
+        caller (ADRs 0014, 0019)."""
         stamp = now_iso()
         with self.database.tx() as db:
             return db.execute(
-                "INSERT INTO intake (kind, url, starts_on, place, created_at, updated_at)"
-                " VALUES (%s, %s, %s, %s, %s, %s) RETURNING id",
-                (IntakeKind.EVENT, url, starts_on, place, stamp, stamp),
+                "INSERT INTO intake (kind, url, created_at, updated_at)"
+                " VALUES (%s, %s, %s, %s) RETURNING id",
+                (IntakeKind.EVENT, url, stamp, stamp),
             ).fetchone()["id"]
 
     def propose(self, kind: IntakeKind, url: str, events_url: str | None, found_by: str) -> int:

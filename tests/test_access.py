@@ -4,7 +4,6 @@ logged-in user, with the JWT claims set and only the api schema on the search pa
 import json
 import uuid
 from contextlib import contextmanager
-from datetime import UTC, date, datetime, timedelta
 
 import pytest
 from psycopg import errors, sql
@@ -165,7 +164,7 @@ def test_private_tables_and_writes_are_closed(store, board, users):
         "SELECT set_status('x', 'applied')",
         "SELECT set_star('x', true)",
         "SELECT suggest_organisation('https://a.org')",
-        "SELECT suggest_event('https://a.org/e', current_date + 1, 'Munich')",
+        "SELECT suggest_event('https://a.org/e')",
         "SELECT remove_event(1)",
     ):
         with pytest.raises(errors.InsufficientPrivilege), api(store) as db:
@@ -310,15 +309,9 @@ def test_a_suggestion_waits_for_an_admin(store, users):
     assert store.intakes.get(own["suggest_organisation"])["state"] == "queued"
 
 
-def _soon() -> date:
-    return (datetime.now(UTC) + timedelta(days=30)).date()
-
-
-def _add_event(store, user, url, place="Munich") -> int:
+def _add_event(store, user, url) -> int:
     with api(store, user) as db:
-        return db.execute("SELECT suggest_event(%s, %s, %s)", (url, _soon(), place)).fetchone()[
-            "suggest_event"
-        ]
+        return db.execute("SELECT suggest_event(%s)", (url,)).fetchone()["suggest_event"]
 
 
 @pytest.mark.parametrize(
@@ -342,46 +335,37 @@ def test_anyone_logged_in_adds_an_event_within_the_caps(store, users):
     alice, bob = users(), users()
     admin = users("admin@example.org")
     store.users.grant_admin("admin@example.org")
-    first = _add_event(store, alice, "https://Example.org/ai-night/", place=" Munich ")
+    first = _add_event(store, alice, "https://Example.org/ai-night/")
     with api(store, alice) as db:
         [mine] = db.execute("SELECT * FROM intakes").fetchall()
     assert (mine["kind"], mine["state"], mine["starts_on"], mine["place"], mine["mine"]) == (
         "event",
         "queued",
-        _soon(),
-        "Munich",
+        None,
+        None,
         True,
     )
     assert store.intakes.next_queued(IntakeKind.EVENT)["id"] == first
-    for url, day, place in (
-        ("javascript:alert(1)", _soon(), "Munich"),
-        ("https://example.org/e", None, "Munich"),
-        ("https://example.org/e", date(2020, 1, 1), "Munich"),
-        ("https://example.org/e", _soon(), "  "),
-        ("https://example.org/e", _soon(), "x" * 201),
-    ):
+    for url in ("javascript:alert(1)", "  ", "https://example.org/" + "x" * 2048):
         with pytest.raises(errors.InvalidParameterValue), api(store, alice) as db:
-            db.execute("SELECT suggest_event(%s, %s, %s)", (url, day, place))
+            db.execute("SELECT suggest_event(%s)", (url,))
     # One intake per page, in any spelling: while it is checked, and once it is added.
     for state in ("checking", "done"):
         store.intakes.update(first, state=state)
         with pytest.raises(errors.UniqueViolation), api(store, bob) as db:
-            db.execute(
-                "SELECT suggest_event('https://example.org/ai-night#tickets', %s, 'Munich')",
-                (_soon(),),
-            )
+            db.execute("SELECT suggest_event('https://example.org/ai-night#tickets')")
     store.intakes.update(first, state="rejected")
     store.intakes.update(_add_event(store, bob, "https://example.org/ai-night"), state="failed")
 
     opened = [_add_event(store, alice, f"https://example.org/e{i}") for i in range(5)]
     with pytest.raises(errors.ProgramLimitExceeded, match="5 events"), api(store, alice) as db:
-        db.execute("SELECT suggest_event('https://example.org/e5', %s, 'Munich')", (_soon(),))
+        db.execute("SELECT suggest_event('https://example.org/e5')")
     for intake_id in opened:
         store.intakes.update(intake_id, state="done")
     for i in range(5, 9):
         _add_event(store, alice, f"https://example.org/e{i}")
     with pytest.raises(errors.ProgramLimitExceeded, match="10 events"), api(store, alice) as db:
-        db.execute("SELECT suggest_event('https://example.org/e9', %s, 'Munich')", (_soon(),))
+        db.execute("SELECT suggest_event('https://example.org/e9')")
     for i in range(11):
         _add_event(store, admin, f"https://example.org/by-admin-{i}")
 
@@ -448,9 +432,7 @@ def test_an_admin_removes_an_added_event_and_its_page_stays_off(store, users):
     row = store.intakes.get(intake_id)
     assert row["state"] == "removed" and row["log"][-1]["step"] == "removed"
     with pytest.raises(errors.InsufficientPrivilege, match="removed"), api(store, alice) as db:
-        db.execute(
-            "SELECT suggest_event('https://example.org/ai-night/', %s, 'Munich')", (_soon(),)
-        )
+        db.execute("SELECT suggest_event('https://example.org/ai-night/')")
     assert store.intakes.get(_add_event(store, admin, page))["state"] == "queued"
 
 
@@ -561,20 +543,16 @@ def test_the_api_is_rebuilt_only_when_it_changes(store):
     assert api_oid() != before
 
 
-def test_an_admin_gives_a_found_event_its_day_and_place(store, users):
+def test_an_admin_approves_a_found_event_by_its_page_alone(store, users):
     admin = users("admin@example.org")
     store.users.grant_admin("admin@example.org")
     found = store.intakes.propose(IntakeKind.EVENT, "https://lu.ma/ai-night", None, "Found")
     unwanted = store.intakes.propose(IntakeKind.EVENT, "https://lu.ma/other-night", None, "Found")
-    with pytest.raises(errors.InvalidParameterValue), api(store, admin) as db:
-        db.execute("SELECT decide_intake(%s, true)", (found,))
-    with pytest.raises(errors.InvalidParameterValue), api(store, admin) as db:
-        db.execute("SELECT decide_intake(%s, true, %s, ' ')", (found, _soon()))
     with api(store, admin) as db:
         db.execute("SELECT decide_intake(%s, false)", (unwanted,))
-        db.execute("SELECT decide_intake(%s, true, %s, ' Garching ')", (found, _soon()))
+        db.execute("SELECT decide_intake(%s, true)", (found,))
     row = store.intakes.get(found)
-    assert (row["state"], row["starts_on"], row["place"]) == ("queued", _soon(), "Garching")
+    assert (row["state"], row["starts_on"], row["place"]) == ("queued", None, None)
     assert store.intakes.get(unwanted)["state"] == "rejected"
 
 
@@ -583,5 +561,5 @@ def test_a_person_adding_a_found_event_takes_it_over(store, users):
     found = store.intakes.propose(IntakeKind.EVENT, "https://lu.ma/ai-night", None, "Found")
     assert _add_event(store, alice, "https://lu.ma/ai-night/") == found
     row = store.intakes.get(found)
-    assert (row["state"], row["submitted_by"], row["place"]) == ("queued", alice, "Munich")
+    assert (row["state"], row["submitted_by"]) == ("queued", alice)
     assert [e["step"] for e in row["log"]] == ["search", "review"]

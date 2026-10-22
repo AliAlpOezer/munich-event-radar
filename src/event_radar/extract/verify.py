@@ -1,6 +1,6 @@
 import re
 import unicodedata
-from datetime import date
+from datetime import date, timedelta
 
 from ..model import Evidence, ParsedEvent
 from .schema import DATE_FIELDS, ENUMS, TEXT_FIELDS, URL_FIELDS
@@ -104,6 +104,36 @@ def names_date(value: str, quote: str, *, within: bool = False) -> tuple[bool, b
         or (within and any(_holds(*span, day) for span in spans))
     )
     return found, str(day.year) in flat or f".{day.year % 100:02d}" in flat
+
+
+def _named_days(flat: str) -> set[tuple[int, int]]:
+    """Each (month, day) a text names alone, in the forms `names_date` reads."""
+    found = set()
+    for m in re.finditer(r"\b0?(\d{1,2})\.\s?0?(\d{1,2})\b", flat):
+        found.add((int(m[2]), int(m[1])))
+    for m in re.finditer(r"\b\d{4}-(\d{2})-(\d{2})\b", flat):
+        found.add((int(m[1]), int(m[2])))
+    for m in re.finditer(rf"\b0?(\d{{1,2}})(?:\.|st|nd|rd|th)?\s*({_MONTH})", flat):
+        found.add((_MONTH_OF[m[2]], int(m[1])))
+    for m in re.finditer(rf"({_MONTH})\.?\s*0?(\d{{1,2}})\b", flat):
+        found.add((_MONTH_OF[m[1]], int(m[2])))
+    return found
+
+
+def names_coming_day(text: str, today: date) -> bool:
+    """Whether `text` names a day from `today` on, alone or within a range, and states its
+    year (ADR 0019). A day counts only with its year, so only the years the text names, up
+    to five ahead, are searched."""
+    flat = _flat(text)
+    days, spans = _named_days(flat), _spans(flat)
+    named = re.findall(r"\b20\d{2}\b", flat) + [f"20{y}" for y in re.findall(r"\.(\d{2})\b", flat)]
+    for year in sorted({int(y) for y in named} & set(range(today.year, today.year + 6))):
+        day = max(today, date(year, 1, 1))
+        while day.year == year:
+            if (day.month, day.day) in days or any(_holds(*span, day) for span in spans):
+                return True
+            day += timedelta(days=1)
+    return False
 
 
 def verify(raw: dict, page_text: str) -> tuple[ParsedEvent, list[str]]:

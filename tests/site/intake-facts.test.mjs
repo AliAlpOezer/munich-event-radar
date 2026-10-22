@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { candidates, label, needsDay, pageName, recent, stepMarks, title } from "../../site/js/intake-facts.js";
+import { awaitsAdmin, candidates, label, pageName, recent, stepMarks, title } from "../../site/js/intake-facts.js";
 
 const DAY = 86400000;
 const intake = (fields = {}) => ({
@@ -84,9 +84,9 @@ test("the web search's candidates wait apart from the recent intakes", () => {
   assert.deepEqual(recent([lostCheck], "organisation"), [lostCheck]);
 });
 
-test("a found event waits for its day and place until an admin gives them", () => {
-  assert.equal(needsDay(event({ state: "review", log: logged("search") })), true);
-  assert.equal(needsDay(event({ state: "rejected", log: logged("search") })), true);
-  assert.equal(needsDay(event({ state: "rejected", starts_on: "2026-11-05" })), false);
-  assert.equal(needsDay(intake({ state: "review" })), false);
+test("a found event, or one an admin turned down, waits for an admin; one the check refused does not", () => {
+  assert.equal(awaitsAdmin(event({ state: "review", log: logged("search") })), true);
+  assert.equal(awaitsAdmin(event({ state: "rejected", log: logged("search", "review") })), true);
+  assert.equal(awaitsAdmin(event({ state: "rejected", error: "The event is over." })), false);
+  assert.equal(awaitsAdmin(intake({ state: "review" })), false);
 });

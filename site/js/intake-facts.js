@@ -12,7 +12,7 @@ export const STEPS = {
     ["done", "On the radar"],
   ],
   event: [
-    ["checking", "Check that the page names the day and the place"],
+    ["checking", "Check the page: its day, its place and its topic"],
     ["harvesting", "Read the event, its tickets and deadlines"],
     ["done", "On the board"],
   ],
@@ -33,8 +33,9 @@ export const checked = (intake) => intake.log.some((entry) => entry.step === "ch
 /* An intake the daily web search proposed: its first log line says so. */
 export const found = (intake) => intake.log[0]?.step === "search";
 
-/* A found event that waits for its day and place, which an admin gives to approve it. */
-export const needsDay = (intake) => isEvent(intake) && !intake.starts_on && (intake.state === "review" || intake.state === "rejected");
+/* An event that waits for an admin: found by the web search, or turned down by one, which
+   the check never does without an error (ADR 0019). */
+export const awaitsAdmin = (intake) => isEvent(intake) && (intake.state === "review" || (intake.state === "rejected" && !intake.error));
 
 /* The search's candidates waiting for an admin, oldest first; an admin's refusal ends them. */
 export const candidates = (intakes) => intakes.filter((i) => found(i) && i.state === "review").reverse();
