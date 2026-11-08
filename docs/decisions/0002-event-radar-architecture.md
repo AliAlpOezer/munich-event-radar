@@ -289,6 +289,9 @@ window (hackaTUM, TUM.ai, CDTM) are A when AI-centred, otherwise B. Alp tunes th
 **Rejected:** the LLM assigning tiers (not replayable, no auditable reason, Q3); learned
 tiers (Q3).
 **Cost:** a feature vocabulary to maintain.
+**Status (2026-11-08):** the tier features are now topic strength, networking and the
+organiser's standing (ADR 0021): AI is one topic among startups and careers, and an
+organiser default is a standing curated in the seed, not only `ai_focus`.
 
 ### D7. Grounded extraction
 Each LLM field is `{value, quote}`. The verifier, which is code, accepts a field only if

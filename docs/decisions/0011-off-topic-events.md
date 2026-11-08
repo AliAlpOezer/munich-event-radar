@@ -1,7 +1,8 @@
 # ADR 0011: Events outside the radar's scope leave the board and the database
 
 **Status:** DECIDED, built on branch `off-topic`; amended 2026-10-18 (D8, D9, branch
-`scope-first`)
+`scope-first`); D4 replaced and the scope rule narrowed to general calendars by ADR 0021
+(2026-11-08)
 **Date:** 2026-10-17
 **Inputs:** Alp, 2026-10-17: "let us clean the supabase data base unrelevant events", then,
 asked what counts as relevant: AI, startup and career events (not every tech event), and
