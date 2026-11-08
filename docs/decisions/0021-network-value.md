@@ -28,7 +28,7 @@ All read-only; the comparison is in the records repository,
 |---|---|
 | Of about 20 networking events in Munich in the five weeks from 2026-11-06, 4 were on the board, all C | own search against anon `api.events`, 2026-11-06 |
 | `Judge` tiers by AI relevance times format: an event not about AI is C at best, whoever runs it, so every CDTM, START and UnternehmerTUM event sat in C | `judge._by_rules`: "not AI-relevant", "AI relevance unknown, organiser not AI-focused" |
-| A conference or programme with AI as one theme is A: "Awareness week: Mental health in the digital age", "Munich Vascular Conference", "Patientensymposium: Herz aus dem Takt" (AHA Bayern), W-JAX (paid) | hosted board 2026-11-08, `network_dump.py` (session scratchpad) with the current judge |
+| A conference or programme with AI as one theme is A: "Awareness week: Mental health in the digital age", "Munich Vascular Conference", "Patientensymposium: Herz aus dem Takt" (AHA Bayern), W-JAX (paid) | hosted board 2026-11-08, `network_dump.py` (records repository, `docs/context/differential/`) with the current judge |
 | News pages are judged as events: "TUM opens Convergence Center and TUM RoboGym" A as `demo_day`, "Federal Minister of Finance Lars Klingbeil visits TUM" B | same |
 | A judgment with no topic drops a tracked organiser's event unstored: 5 of 150 off-topic groups on 2026-11-08 (4 START Munich, 1 CDTM), 145 from the general calendars TUM central (90), AHA Bayern (40) and BAdW (17) | same |
 | CDTM is an intake organiser (`discovered_via = manual`, kind `industry`, `ai_focus` false), so no seed edit reaches its flags | hosted `organiser`, 2026-11-08 |
@@ -109,7 +109,7 @@ kind and title.
 ## How it landed (2026-11-08)
 
 Dry run, read-only, over the hosted observations and their `judgments-v3` answers with the
-stored events' stars (`network_dump.py` in the session scratchpad, standing from this
+stored events' stars (`network_dump.py` in the records repository, standing from this
 branch's seed): 30 of 389 groups move, none leaves or joins.
 
 | | A | B | C | off topic | past |
