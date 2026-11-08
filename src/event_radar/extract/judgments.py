@@ -1,6 +1,7 @@
 """What an event is about (ADR 0018): the candidate a judgment reads, the key that makes an
 unchanged candidate one question, and the batched question itself. A model states topics,
-a kind and an audience; the judge decides the board."""
+a kind, an audience, whether the page is an event and whether meeting people is its point
+(ADR 0021); the judge decides the board."""
 
 import json
 from collections.abc import Sequence
@@ -11,11 +12,12 @@ from .. import html
 from ..model import Evidence, ParsedEvent, json_key
 from .schema import ENUMS
 
-VERSION = "judgments-v3"
+VERSION = "judgments-v4"
 BATCH = 10
 TEXT = 2000
 AI = ("core", "some", "none", "unknown")
 TOPICS = ("startup", "career", "tech")
+FLAGS = ("event", "networking")  # ADR 0021
 _FIELDS = ("title", "description", "organiser", "venue")
 # Equal for candidates with the same JSON, wherever they came from.
 key = json_key
@@ -33,8 +35,9 @@ SCHEMA = {
                     **{topic: {"type": "boolean"} for topic in TOPICS},
                     "kind": {"type": "string", "enum": ENUMS["kind"]},
                     "audience": {"type": "string", "enum": ENUMS["audience"]},
+                    **{flag: {"type": "boolean"} for flag in FLAGS},
                 },
-                "required": ["id", "ai", *TOPICS, "kind", "audience"],
+                "required": ["id", "ai", *TOPICS, "kind", "audience", *FLAGS],
                 "additionalProperties": False,
             },
         }
@@ -61,10 +64,17 @@ its fields, or the title and opening text of the event's own page. For each even
   fellowship or accelerator; otherwise one of: {", ".join(ENUMS["kind"])}.
 - audience: "children", "school_pupils", "families", or "adults" (university students,
   professionals or the general public, also when children are welcome).
+- event: false only when the text is clearly not something people can attend: a news
+  article, a press release, a report on something that already happened, or a page about an
+  organisation, a place or a service; true otherwise, also for a bare title.
+- networking: true when meeting the other attendees or the hosts is a main part of it: a
+  mixer, Stammtisch, open day, info session, community meetup, career fair, hackathon, pitch
+  night, or a talk with time to network after; false for a lecture, ceremony, course or
+  exhibition where attendees mostly listen or watch.
 Judge each event only by what its own line says it is, not by its organiser, series or
 venue: a university's concert is not about tech, an academy's lecture on religion is not
 about AI, and a theatre show about physics is not tech. Answer every id with
-{{"id", "ai", "startup", "career", "tech", "kind", "audience"}}."""
+{{"id", "ai", "startup", "career", "tech", "kind", "audience", "event", "networking"}}."""
 
 
 def page(body: bytes, url: str) -> dict | None:
@@ -117,11 +127,11 @@ def answers(result: dict, count: int) -> dict[int, dict]:
     for judgment in result.get("judgments") or []:
         if not isinstance(judgment, dict) or type(ident := judgment.get("id")) is not int:
             continue
-        answer = {k: judgment.get(k) for k in ("ai", *TOPICS, "kind", "audience")}
+        answer = {k: judgment.get(k) for k in ("ai", *TOPICS, "kind", "audience", *FLAGS)}
         if (
             0 <= ident < count
             and answer["ai"] in AI
-            and all(isinstance(answer[t], bool) for t in TOPICS)
+            and all(isinstance(answer[t], bool) for t in (*TOPICS, *FLAGS))
             and answer["kind"] in ENUMS["kind"]
             and answer["audience"] in ENUMS["audience"]
         ):

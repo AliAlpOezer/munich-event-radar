@@ -7,39 +7,51 @@
 # their text (profile.yaml). Default false: general calendars (TUM central, BAdW) and startup
 # or cloud groups then need a keyword or the LLM to reach B. ITCS, hackaTUM and DLD are not
 # AI-only, but eval/golden.yaml tags them A, so they carry the flag.
+# standing (ADR 0021): anchor, a community the board exists for (radar/clubs.md Tier 1 and
+# the joint institutions in the records repository): every event at least B; community, an
+# organiser running its own events: never off topic; calendar (the default), a listing of
+# many organisers' events: each needs a topic. The seed owns ai_focus and standing of every
+# organiser it names by domain and name, also one an intake added (CDTM).
 
 - name: Munich NLP
   domain: luma.com/munichnlp
+  standing: community
   kind: community
   ai_focus: true
   sources: [{url: https://luma.com/munichnlp, kind: listing}]
 - name: appliedAI Developers Munich
   domain: luma.com/appliedaidevelopers
+  standing: community
   kind: community
   ai_focus: true
   sources: [{url: https://luma.com/appliedaidevelopers, kind: listing}]
 - name: TUM Social AI Club
   domain: luma.com/tum-socialaiclub
+  standing: community
   kind: student
   ai_focus: true
   sources: [{url: https://luma.com/tum-socialaiclub, kind: listing}]
 - name: AAIF Community Munich
   domain: luma.com/aaif-munich
+  standing: community
   kind: community
   ai_focus: true
   sources: [{url: https://luma.com/aaif-munich, kind: listing}]
 - name: AWS User Group Munich
   domain: meetup.com/aws-munich
+  standing: community
   kind: community
   sources: [{url: https://www.meetup.com/aws-munich/events/ical/, kind: feed}]
 - name: Munich AI, ML and Computer Vision Meetup
   domain: meetup.com/munchen-ai-machine-learning-and-computer-vision-meetup
+  standing: community
   kind: community
   ai_focus: true
   sources:
     - {url: "https://www.meetup.com/munchen-ai-machine-learning-and-computer-vision-meetup/events/ical/", kind: feed}
 - name: MDSI (TUM Munich Data Science Institute)
   domain: mdsi.tum.de
+  standing: community
   kind: academic
   ai_focus: true
   sources:
@@ -47,6 +59,7 @@
     - {url: https://www.mdsi.tum.de/mdsi/aktuelles/veranstaltungen/, kind: listing}
 - name: MCML (Munich Center for Machine Learning)
   domain: mcml.ai
+  standing: anchor
   kind: academic
   ai_focus: true
   sources: [{url: https://mcml.ai/events/index.xml, kind: feed, class: AGG}]
@@ -65,6 +78,7 @@
   sources: [{url: https://badw.de/en/events, kind: listing}]
 - name: UnternehmerTUM
   domain: unternehmertum.de
+  standing: anchor
   kind: startup
   sources: [{url: https://www.unternehmertum.de/en/events, kind: listing}]
 - name: Munich Startup
@@ -73,36 +87,43 @@
   sources: [{url: https://www.munich-startup.de/en/events, kind: listing}]
 - name: hackaTUM
   domain: hack.tum.de
+  standing: community
   kind: student
   ai_focus: true
   sources: [{url: https://hack.tum.de/, kind: event_page}]
 - name: TUM.ai
   domain: tum-ai.com
+  standing: anchor
   kind: student
   ai_focus: true
   sources: [{url: https://www.tum-ai.com/apply, kind: event_page}]
 - name: WiDS Munich
   domain: widsmunich.de
+  standing: community
   kind: academic
   ai_focus: true
   sources: [{url: https://widsmunich.de/, kind: event_page}]
 - name: TUM School of Management, Strategy and Organization
   domain: aistrategyconference.com
+  standing: community
   kind: academic
   ai_focus: true
   sources: [{url: https://aistrategyconference.com/, kind: event_page}]
 - name: ITCS
   domain: it-cs.io
+  standing: community
   kind: industry
   ai_focus: true
   sources: [{url: https://www.it-cs.io/, kind: event_page}]
 - name: DLD (Burda)
   domain: dld-conference.com
+  standing: community
   kind: industry
   ai_focus: true
   sources: [{url: https://dld-conference.com/, kind: event_page, browser: true}]
 - name: START Munich
   domain: startmunich.de
+  standing: anchor
   kind: student
   sources: [{url: https://www.startmunich.de/events, kind: listing, browser: true}]
 - name: baiosphere
@@ -110,3 +131,8 @@
   kind: academic
   ai_focus: true
   sources: [{url: https://baiosphere.org/, kind: listing, browser: true}]
+- name: CDTM
+  domain: cdtm.com
+  kind: student
+  standing: anchor
+  sources: [{url: "https://luma.com/user/usr-155pp5bEZxqeQBp", kind: listing, browser: true}]

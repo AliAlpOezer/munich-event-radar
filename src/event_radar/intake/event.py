@@ -19,6 +19,7 @@ from ..harvester import EVENT_PAGE_HOURS, Harvester
 from ..judge import Judge
 from ..model import (
     AUDIENCE,
+    NOT_EVENT,
     OFF_TOPIC,
     Evidence,
     IntakeState,
@@ -41,6 +42,7 @@ DROPPED = {
     "outside_munich": "The event is not in Munich.",
     OFF_TOPIC: "The page is not about AI, startups, careers or tech.",
     AUDIENCE: "The event is for children, school pupils or families; the radar is for adults.",
+    NOT_EVENT: "The page reads as news or a report, not as an event people can attend.",
 }
 
 
@@ -101,7 +103,7 @@ def check_relevance(
     the LLM will read passes on such a word too when only its parsed fields are off topic,
     since the LLM states the event's relevance (ADR 0010)."""
     if judgment is not None:
-        verdict = judge.judge(fields, now, ai_focus=False, startup_focus=False, judgment=judgment)
+        verdict = judge.judge(fields, now, judgment=judgment)
         if verdict.tier:
             return
         raise Refused(DROPPED[verdict.drop_reason])
@@ -109,7 +111,7 @@ def check_relevance(
         if not judge.names_scope(text):
             raise Refused(DROPPED[OFF_TOPIC])
         return
-    verdict = judge.judge(fields, now, ai_focus=False, startup_focus=False)
+    verdict = judge.judge(fields, now)
     if verdict.tier:
         return
     if verdict.drop_reason == OFF_TOPIC and needs_llm and judge.names_scope(text):

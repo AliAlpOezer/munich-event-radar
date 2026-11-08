@@ -11,7 +11,17 @@ from .extract import Extractor, judgments
 from .extract.router import AllModelsFailed, BudgetExhausted, DailyCapReached
 from .fetch import Fetched, Fetcher
 from .judge import Judge
-from .model import NOT_STORED, JobState, JudgedEvent, Kind, Observation, ParsedEvent, SourceClass
+from .model import (
+    NOT_STORED,
+    JobState,
+    JudgedEvent,
+    Kind,
+    Observation,
+    ParsedEvent,
+    SourceClass,
+    Standing,
+    field_value,
+)
 from .parse import parse
 from .pipeline import ingest
 from .profile import Profile
@@ -37,7 +47,8 @@ def _follow_kind(url: str) -> Kind:
 
 class Harvester:
     """One job's harvest. Without a renderer it skips browser sources; without an
-    extractor, pages wait in the LLM queue. `counts` tallies what happened."""
+    extractor, pages wait in the LLM queue. `counts` tallies what happened; `unstored` names
+    each event the last judging left off the board unstored, with why (ADR 0021 D9)."""
 
     def __init__(
         self,
@@ -54,6 +65,7 @@ class Harvester:
         self.extractor = extractor
         self.judge = Judge(profile)
         self.counts: Counter = Counter()
+        self.unstored: list[str] = []
 
     def harvest_due(self) -> None:
         """Every source whose cadence has passed: the browser sources when this harvester
@@ -160,14 +172,13 @@ class Harvester:
 
     def _worth_extracting(self, jobs: list[dict]) -> list[dict]:
         """The jobs worth an extraction call (ADR 0010, ADR 0018 D7): the judge skips the
-        events it drops for their audience or a fact, whatever their topic, an AI-focused or
-        startup organiser's pages need no judgment, and the others are extracted unless the
-        judgment of their page puts them out of scope. One left unanswered, or whose page says
-        too little to tell, is extracted. The
-        skipped become `skipped`."""
+        events it drops for their audience or a fact, whatever their topic, the pages of an
+        AI-focused organiser or one the seed follows need no judgment (ADR 0021), and the
+        others are extracted unless the judgment of their page puts them out of scope. One
+        left unanswered, or whose page says too little to tell, is extracted. The skipped
+        become `skipped`."""
         now = datetime.now(UTC)
-        focused = self.store.sources.focused_urls()
-        startups = self.store.sources.startup_urls()
+        in_scope = self.store.sources.focused_urls() | set(self.store.sources.standings())
         asked: dict[tuple[str, str], str] = {}
         candidates: dict[str, dict] = {}
         kept: set[tuple[str, str]] = set()
@@ -178,7 +189,7 @@ class Harvester:
             if fields and (self.judge.audience(fields)[0] or self.judge.fact_drop(fields, now)):
                 self.store.extraction.skip(*ident)
                 self.counts["llm_skipped"] += 1
-            elif job["url"] in focused or job["url"] in startups:
+            elif job["url"] in in_scope:
                 kept.add(ident)
             elif candidate := judgments.page(body, job["url"]):
                 asked[ident] = judgments.key(candidate)
@@ -190,9 +201,7 @@ class Harvester:
         answers = self.store.judgments.answers(candidates, judgments.VERSION)
         for ident, key in asked.items():
             judgment = judgments.telling(answers.get(key))
-            verdict = judgment and self.judge.judge(
-                {}, now, ai_focus=False, startup_focus=False, judgment=judgment
-            )
+            verdict = judgment and self.judge.judge({}, now, judgment=judgment)
             if verdict and verdict.drop_reason in NOT_STORED:
                 self.store.extraction.skip(*ident)
                 self.counts["llm_unrelated"] += 1
@@ -262,8 +271,9 @@ class Harvester:
         with self.store.lock("judge"):
             now = datetime.now(UTC)
             focused = self.store.sources.focused_urls()
-            startups = self.store.sources.startup_urls()
+            standings = self.store.sources.standings()
             judged, hot = [], set()
+            self.unstored = []
             groups = resolve(self.store.observations.all())
             sources = [{o.url for o in g.observations} for g in groups]
             carried = self.store.events.continued(
@@ -285,8 +295,8 @@ class Harvester:
                 verdict = self.judge.judge(
                     group.fields,
                     now,
+                    standing=Standing.highest(standings[u] for u in urls if u in standings),
                     ai_focus=bool(urls & focused),
-                    startup_focus=bool(urls & startups),
                     stars=stored.stars,
                     judgment=judgment,
                 )
@@ -301,6 +311,9 @@ class Harvester:
                     )
                 )
                 self.counts[f"tier_{verdict.tier or verdict.drop_reason}"] += 1
+                if verdict.drop_reason in NOT_STORED:
+                    title = field_value(group.fields, "title")
+                    self.unstored.append(f"{verdict.drop_reason}: {title} ({min(urls)})")
                 owed = bool(candidates) and candidates[0] not in answers
                 self.counts["judgment_pending"] += owed and self._owes_judgment(group, now)
                 if verdict.tier in {"A", "B"}:

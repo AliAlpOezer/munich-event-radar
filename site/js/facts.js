@@ -13,12 +13,18 @@ export const TRANSITIONS = {
 };
 export const STATUS_LABEL = { applied: "Applied", registered: "Registered", skipped: "Skipped", none: "No status" };
 export const STATUS_ACTION = { applied: "Applied", registered: "Registered", skipped: "Skip", none: "Clear" };
+/* ADR 0021: events rank by the people worth meeting there. */
 export const TIER_MEANING = {
-  A: "Must not miss: free, in Munich, with people from AI or hiring companies to meet.",
-  B: "Free and AI-relevant, with some networking.",
-  C: "In scope but not pushed: AI relevance unknown, paid, or not AI-focused.",
+  A: "Must not miss: free, in Munich, on AI, startups or careers, and made for meeting people or opening a door.",
+  B: "Worth going: free and on AI, startups or careers, or run by a community the radar follows.",
+  C: "In scope, not pushed: paid, AI or tech only on the side, or no topic named.",
 };
-export const DROP_LABEL = { past: "Past", online_only: "Online only", outside_munich: "Outside Munich" };
+export const DROP_LABEL = {
+  past: "Past",
+  online_only: "Online only",
+  outside_munich: "Outside Munich",
+  not_event: "Not an event",
+};
 
 export const val = (ev, name) => ev.fields?.[name]?.value ?? null;
 
@@ -92,13 +98,15 @@ export function when(ev) {
   return `${from} to ${formatMoment(val(ev, "ends_at"))}`;
 }
 
-/* The judge's reasons ("price=free", "ai=core") in words. */
+/* The judge's reasons ("price=free", "ai=core") in words, each starting with a capital. */
 export function humanReason(reason) {
+  if (reason === "networking") return "Built for meeting people";
   const [name, value] = reason.split("=");
-  if (value === undefined) return reason;
+  if (value === undefined) return reason.charAt(0).toUpperCase() + reason.slice(1);
   const map = {
     price: { unknown: "Price not stated", free: "Free", paid: "Paid", free_student_route: "Free route for students" },
     ai: { core: "AI keyword or stated AI focus", some: "Some AI content", unknown: "No AI keyword found", none: "Not AI-related" },
+    organiser: { anchor: "Run by a community the radar is built around", community: "Run by an organiser the radar follows" },
   };
   if (name === "kind") return value === "None" ? "Kind not recognised" : `Kind: ${value.replace(/_/g, " ")}`;
   return map[name]?.[value] || reason;

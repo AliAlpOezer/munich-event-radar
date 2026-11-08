@@ -21,7 +21,12 @@ def seed(settings: config.Settings, args: argparse.Namespace) -> None:
 
 
 def harvest(settings: config.Settings, args: argparse.Namespace) -> None:
-    print(json.dumps(jobs.harvest(settings)))
+    counts = jobs.harvest(settings)
+    unstored = counts.pop("unstored")
+    print(json.dumps(counts))
+    # Each event left off the board unstored, so a drop is visible (ADR 0021 D9).
+    for line in sorted(unstored):
+        print(line)
 
 
 def browse(settings: config.Settings, args: argparse.Namespace) -> None:

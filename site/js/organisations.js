@@ -8,6 +8,12 @@ import { state } from "./state.js";
 import { persist } from "./storage.js";
 import { relative } from "./time.js";
 
+/* How far the radar follows an organiser (ADR 0021); a calendar shows no chip. */
+const STANDING = {
+  anchor: { label: "Anchor", title: "A community the radar is built around: every event at least B" },
+  community: { label: "Followed", title: "Runs its own events: none is dropped for its topic" },
+};
+
 function orgStats(org) {
   const events = state.events.filter((ev) => ev.organiser_ids.includes(org.id));
   const upcoming = events.filter(isUpcoming);
@@ -59,6 +65,7 @@ function orgCard({ org, stats, health }, open) {
       <span class="org-name"><strong>${esc(org.name)}</strong><span class="domain">${esc(org.domain)}</span></span>
       <span class="org-tags"><span class="chip">${esc(org.kind || "unknown kind")}</span>
         ${org.ai_focus ? `<span class="chip accent" title="Events count as AI-relevant without an AI keyword">AI focus</span>` : ""}
+        ${STANDING[org.standing] ? `<span class="chip accent" title="${esc(STANDING[org.standing].title)}">${esc(STANDING[org.standing].label)}</span>` : ""}
         ${org.discovered_via === "manual" ? `<span class="chip" title="Added from this page">Added by hand</span>` : ""}
         ${org.status !== "active" ? `<span class="chip warn"${org.status === "dormant" ? ` title="No upcoming event found yet; its sources are still checked"` : ""}>${esc(org.status)}</span>` : ""}</span>
       <span class="org-counts">${counts}<span class="org-health"><span class="chip ${health.cls}">${esc(health.text)}</span></span></span>

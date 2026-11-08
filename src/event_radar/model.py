@@ -1,5 +1,6 @@
 import hashlib
 import json
+from collections.abc import Iterable
 from dataclasses import dataclass, field
 from enum import StrEnum
 
@@ -35,6 +36,20 @@ class OrganiserStatus(StrEnum):
     DORMANT = "dormant"
     DEMOTED = "demoted"
     REMOVED = "removed"
+
+
+class Standing(StrEnum):
+    """How far the radar follows an organiser (ADR 0021), curated in the seed. Ordered: an
+    event read from several organisers' pages takes the highest."""
+
+    CALENDAR = "calendar"  # lists many organisers' events: each needs a topic
+    COMMUNITY = "community"  # runs its own events: every one in scope
+    ANCHOR = "anchor"  # a community the board exists for: every event at least B
+
+    @classmethod
+    def highest(cls, standings: Iterable["Standing"]) -> "Standing":
+        order = list(cls)
+        return max(standings, key=order.index, default=cls.CALENDAR)
 
 
 class IntakeState(StrEnum):
@@ -134,16 +149,18 @@ class ParseResult:
 
 
 # Outside the radar's scope (ADR 0011), or aimed at an audience other than adults (ADR
-# 0012): such an event is not stored.
+# 0012): such an event is not stored. A page judged not to be an event is (ADR 0021 D7).
 OFF_TOPIC = "off_topic"
 AUDIENCE = "audience"
+NOT_EVENT = "not_event"
 NOT_STORED = frozenset({OFF_TOPIC, AUDIENCE})
 
 
 @dataclass(frozen=True)
 class Verdict:
     """The judge's tier for an event, or why it was dropped. Every drop is a fact about the
-    event except `OFF_TOPIC`, which the LLM's reading of the page can still change."""
+    event except `OFF_TOPIC` and `NOT_EVENT`, which the LLM's reading of the page can still
+    change."""
 
     tier: str | None
     reasons: tuple[str, ...]

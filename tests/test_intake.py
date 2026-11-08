@@ -425,7 +425,8 @@ class _Judgments:
 
     def __init__(self, **answer):
         topics = {"startup": False, "career": False, "tech": False}
-        self.answer = {"ai": "none", **topics, "kind": "other", "audience": "adults", **answer}
+        self.answer = {"ai": "none", **topics, "kind": "other", "audience": "adults"}
+        self.answer |= {"event": True, "networking": False, **answer}
         self.asked: list[tuple[str, str | None]] = []
 
     def complete(self, messages, schema, name="events", first=None):

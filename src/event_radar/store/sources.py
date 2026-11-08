@@ -1,3 +1,4 @@
+from ..model import Standing
 from .database import Repository, now_iso
 
 # The daily harvest starts late by a varying amount (GitHub delays scheduled runs), so a
@@ -53,9 +54,17 @@ class Sources(Repository):
         """The sources of organisers whose main topic is AI."""
         return self._of_organisers("o.ai_focus")
 
-    def startup_urls(self) -> set[str]:
-        """The sources of startup organisers, whose every event is in scope (ADR 0011)."""
-        return self._of_organisers("o.kind = 'startup'")
+    def standings(self) -> dict[str, Standing]:
+        """The standing of each source's organiser the seed follows (ADR 0021); a source
+        left out is a calendar's, or nobody's."""
+        with self.database.tx() as db:
+            return {
+                r["url"]: Standing(r["standing"])
+                for r in db.execute(
+                    "SELECT s.url, o.standing FROM source s"
+                    " JOIN organiser o ON o.id = s.organiser_id WHERE o.standing <> 'calendar'"
+                )
+            }
 
     def _of_organisers(self, where: str) -> set[str]:
         with self.database.tx() as db:

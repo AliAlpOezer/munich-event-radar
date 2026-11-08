@@ -1,9 +1,9 @@
 # Relevance profile (Q3, Q5; ADR 0002 D6). The judge reads this; edit it to tune tiers.
-# Recall first: unknown price never demotes an event. Unknown AI relevance counts as
-# relevant only for organisers with `ai_focus: true` in seed/organisers.yaml, whose events
-# not about AI are C (ADR 0018 D9). Elsewhere an event is C when it is in `scope`, and off
-# topic otherwise (ADR 0011), so general calendars such as TUM's neither flood B nor fill
-# the board with concerts.
+# Network value (ADR 0021): an event ranks by how squarely it is about the board's topics
+# (`topics`), whether meeting people is the point (`networking`, or the LLM's judgment), and
+# how far the radar follows its organiser (`standing` in seed/organisers.yaml). Recall first:
+# unknown price never demotes an event. Only a general calendar's events need a topic; an
+# event of an organiser the seed follows is never off topic (ADR 0011, ADR 0021).
 
 munich:
   cities: [münchen, munich, muenchen, garching, garching bei münchen, martinsried, planegg,
@@ -16,14 +16,15 @@ aggregators: [messen.de, munich-startup.de, dealroom.co, brainberg.eu, eventbrit
               allevents.in, 10times.com, luma.com/discover, dev.events, conferenceindex.org,
               techmeetups.com, kommunity.com, eventmatch.co]
 
-# Kinds that make a free, in-person, AI-relevant event A. Everything else free is B.
-# Assumption (D6): free hackathons and programmes with an application window are A.
+# Kinds that make a free, in-person event with a strong topic A: each opens a door, to a
+# job, a team, a programme or an investor. Assumption (D6): free hackathons and programmes
+# with an application window are A.
 a_kinds: [career_fair, conference, symposium, flagship_lecture, hackathon, programme, demo_day,
           industry_talk]
 
-# Kinds that surface even when AI relevance is unknown at an organiser without ai_focus:
-# career fairs bring hiring companies (Q5 tier A), and free hackathons are A by the D6
-# assumption. TUM's central listing is hackaTUM's only dated source until the LLM runs.
+# Kinds that are A whatever their topic: career fairs bring hiring companies (Q5 tier A),
+# and free hackathons are A by the D6 assumption. TUM's central listing is hackaTUM's only
+# dated source until the LLM runs.
 any_topic_kinds: [career_fair, hackathon]
 
 # Stars lift a tier (ADR 0015): an event that at least this many accounts starred is at
@@ -56,22 +57,34 @@ keywords:
     workshop: [workshop, masterclass, bootcamp]
     talk: [talk, vortrag, lecture, panel, diskussion, seminar, colloquium, kolloquium]
 
-# The radar's scope besides AI (Alp, 2026-10-17; ADR 0011). An event is off topic, and is
-# not stored, when it is not about AI, is of no `any_topic_kinds` kind, its organiser is
-# neither AI-focused nor of kind `startup`, and its title, description and organiser hold
-# none of these words. `developer` is Alp's "coding, developer" (2026-10-18; ADR 0014 D9);
+# The words of each topic besides AI (Alp, 2026-10-17; ADR 0011), read when the LLM has not
+# judged the event; a group is named after the topic it stands for. A general calendar's
+# event is off topic, and is not stored, when it is not about AI, is of no `any_topic_kinds`
+# kind, its organiser is not AI-focused, and its title, description and organiser hold none
+# of these words. `tech` holds Alp's "coding, developer" (2026-10-18; ADR 0014 D9);
 # " coding " is a word, so "encoding" is not one.
 scope:
   startup: [startup, start up, founder, gründer, gründung, entrepreneur, venture capital,
             accelerator, incubator, inkubator, pitch, investor, demo day]
   career: [career, karriere, " job", recruiting, hiring, internship, praktikum]
-  developer: [" coding ", developer, programming, software engineer]
+  tech: [" coding ", developer, programming, software engineer]
 
-# The topics besides AI that keep an event once the LLM has judged what its page says (ADR
-# 0018); the words of `scope` then no longer decide. An event judged to be about one of these
-# is in scope, and C unless AI is one of its themes. `tech` is Alp's of 2026-10-20 (Schwarz
-# Group's IT, cloud meetups); without it the scope is ADR 0011's AI, startups and careers.
-topics: [startup, career, tech]
+# The topics besides AI, as the LLM judges them (ADR 0018) or `scope` names them. AI is
+# one topic among them (Alp, 2026-11-06; ADR 0021): AI as an event's main topic is strong,
+# AI as one theme among others weak. A strong topic makes an event B, or A with an
+# `a_kinds` kind or networking; a weak one makes it B at an organiser the seed follows and C
+# on a general calendar. `tech` is Alp's of 2026-10-20 (Schwarz Group's IT, cloud
+# meetups); without it the scope is ADR 0011's AI, startups and careers.
+topics:
+  strong: [startup, career]
+  weak: [tech]
+
+# Title words of formats built for meeting people (Alp, 2026-11-06: "open day, demo night,
+# Stammtisch, run club, mixer, info session"), read when the LLM has not judged whether an
+# event is. Not "afterwork" or "open house": UnternehmerTUM's cooking afterwork and a
+# research centre's open house for families name no network.
+networking: [stammtisch, open day, info session, infoabend, mixer, networking, get together,
+             community night, meet and greet, run club]
 
 # Who the board is not for (Alp, 2026-10-17: "our audience is young adults/ adults", and
 # families too; ADR 0012). An event aimed at one of these audiences is not stored, whatever
