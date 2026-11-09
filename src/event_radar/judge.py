@@ -122,11 +122,21 @@ class Judge:
         title = _words(field_value(fields, "title"))
         return any(w in title for w in self.profile.networking)
 
+    def last_day(self, fields: dict) -> str | None:
+        """The day after which the event is past: its end, else its start, else the close of
+        its registration. A programme is joined by applying, so its close ends it however
+        far ahead its class starts (ADR 0022 D1)."""
+        closes = local_date(field_value(fields, "reg_closes_at"))
+        if closes and self.kind(fields) == "programme":
+            return closes
+        own = field_value(fields, "ends_at") or field_value(fields, "starts_at")
+        return local_date(own) if own else closes
+
     def fact_drop(self, fields: dict, now: datetime) -> Verdict | None:
         """The drop for a fact of the event, whatever its topic: past, online only or
         outside Munich."""
         today = now.date().isoformat()
-        last_day = local_date(field_value(fields, "ends_at") or field_value(fields, "starts_at"))
+        last_day = self.last_day(fields)
         if last_day and last_day < today:
             return Verdict(None, (), "past")
         attendance, evidence = self.attendance(fields)

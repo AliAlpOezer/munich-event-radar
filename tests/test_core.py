@@ -1,7 +1,7 @@
 import json
 import sqlite3
 from dataclasses import replace
-from datetime import datetime
+from datetime import date, datetime
 from pathlib import Path
 
 import httpx
@@ -182,6 +182,57 @@ def test_verifier_rejects_ungrounded_and_flags_missing_year():
     assert set(rejected) == {"title", "reg_opens_at", "reg_url"}
     assert event.fields["reg_closes_at"].value == "2026-10-27"
     assert event.fields["reg_closes_at_year_stated"].value is False
+
+
+# tum-ai.com/apply, read 2026-11-08: "25 Oct (passed)" came back as 2027-10-25, since the
+# prompt asks for the next occurrence; the tally form's stated 2025 stays (ADR 0022 D2).
+@pytest.mark.parametrize(
+    ("value", "quote", "read", "expected"),
+    [
+        (
+            "2027-10-25T23:59:00",
+            "Application deadline 25 Oct (passed)",
+            "2026-11-08",
+            "2026-10-25T23:59:00",
+        ),
+        ("2027-08-31", "Die Bewerbungsphase endete am 31. August", "2026-11-09", "2026-08-31"),
+        ("2026-12-06", "Deadline: 6 December", "2026-11-09", "2026-12-06"),
+        ("2026-01-15", "Kick-off 15 January", "2026-11-09", "2027-01-15"),
+        (
+            "2025-10-25T23:59:00",
+            "closed on 25.10.2025 at 23:59",
+            "2026-11-08",
+            "2025-10-25T23:59:00",
+        ),
+    ],
+)
+def test_a_date_without_its_year_takes_the_year_nearest_the_read(value, quote, read, expected):
+    page = f"Apply. {quote}."
+    raw = {"reg_closes_at": {"value": value, "quote": quote}}
+    event, _ = verify(raw, page, date.fromisoformat(read))
+    assert event.fields["reg_closes_at"].value == expected
+
+
+# The LLM said online for "Apply now" (TUM.ai), "public" (a TUM patient symposium) and the
+# audience of the PhilML'26 conference at MCML, 2026-10 (ADR 0022 D3).
+@pytest.mark.parametrize(
+    ("value", "quote", "kept"),
+    [
+        ("online", "Apply now", False),
+        ("mixed", "public", False),
+        ("online", "philosophers and machine learning researchers", False),
+        ("online", "Teams of 2-4 apply together", False),
+        ("online", "Das kostenfreie Zoom-Webinar", True),
+        ("online", "Free online info session", True),
+        ("mixed", "Hybrid – Join us in person", True),
+        ("online", "Livestream on YouTube", True),
+        ("in_person", "Apply now", True),
+    ],
+)
+def test_an_online_attendance_needs_a_quote_that_names_it(value, quote, kept):
+    event, rejected = verify({"attendance": {"value": value, "quote": quote}}, f"x {quote} y")
+    assert ("attendance" in event.fields) is kept
+    assert ("attendance" in rejected) is not kept
 
 
 # forge.sphere-intelligence.eu, 2026-10-19: "11–13 November 2026" did not name the 11th.
@@ -431,6 +482,34 @@ def judged(ai="none", kind="talk", audience="adults", event=True, networking=Fal
         "event": event,
         "networking": networking,
     }
+
+
+def test_a_window_ends_an_event_without_a_day_and_a_programme():
+    """ADR 0022 D1: the stale TUM.ai form (closed 2025-10-25, no day of its own) was A."""
+    form = verdict(
+        title="TUM.ai Application Period", kind="programme", reg_closes_at="2025-10-25T23:59:00"
+    )
+    assert form.drop_reason == "past"
+    assert verdict(title="AI meetup", reg_closes_at="2026-10-01").drop_reason == "past"
+    assert verdict(title="AI meetup", reg_closes_at="2026-10-09").tier is not None
+    # A conference whose registration closed still happens; a programme's class is closed.
+    talk = verdict(title="AI conference", starts_at="2026-11-20", reg_closes_at="2026-10-01")
+    assert talk.tier is not None
+    batch = verdict(
+        title="AI product batch",
+        kind="programme",
+        starts_at="2027-02-22",
+        ends_at="2027-05-14",
+        reg_closes_at="2026-10-02",
+    )
+    assert batch.drop_reason == "past"
+    open_batch = verdict(
+        title="AI product batch",
+        kind="programme",
+        starts_at="2027-02-22",
+        reg_closes_at="2026-12-02",
+    )
+    assert open_batch.tier == "A"
 
 
 def test_judge_drops_only_by_logged_rule_and_never_on_price():

@@ -136,7 +136,31 @@ def names_coming_day(text: str, today: date) -> bool:
     return False
 
 
-def verify(raw: dict, page_text: str) -> tuple[ParsedEvent, list[str]]:
+def nearest_year(value: str, read: date) -> str:
+    """The ISO date or moment `value` in the year that puts its day nearest `read`, the day
+    its page was read: a page names the days around it, past ones too (ADR 0022 D2)."""
+    day = date.fromisoformat(value[:10])
+    candidates = []
+    for year in (read.year - 1, read.year, read.year + 1):
+        try:
+            candidates.append(day.replace(year=year))
+        except ValueError:  # 29 February
+            continue
+    best = min(candidates, key=lambda c: (abs((c - read).days), c < read))
+    return best.isoformat() + value[10:]
+
+
+# Words that state an event is held online, whole or in part (ADR 0022 D3).
+_ONLINE = re.compile(
+    r"\b(online|virtuell\w*|virtual|zoom|webinar\w*|livestream\w*|live stream\w*|"
+    r"stream(ed|ing)?|remote|hybrid\w*|webex|microsoft teams|google meet)\b"
+)
+
+
+def verify(raw: dict, page_text: str, read: date | None = None) -> tuple[ParsedEvent, list[str]]:
+    """The fields of one LLM answer that its quotes ground in `page_text`, and the names of
+    those that fail. A date without its year moves to the year nearest `read`, the day the
+    page was read (today by default)."""
     page = _flat(page_text)
     accepted: dict[str, Evidence] = {}
     rejected: list[str] = []
@@ -154,6 +178,9 @@ def verify(raw: dict, page_text: str) -> tuple[ParsedEvent, list[str]]:
         if name in URL_FIELDS and _flat(str(value)) not in page:
             rejected.append(name)
             continue
+        if name == "attendance" and value != "in_person" and not _ONLINE.search(_flat(quote)):
+            rejected.append(name)
+            continue
         if name in DATE_FIELDS:
             found, year_stated = names_date(str(value), quote)
             if not found:
@@ -161,5 +188,6 @@ def verify(raw: dict, page_text: str) -> tuple[ParsedEvent, list[str]]:
                 continue
             if not year_stated:
                 accepted[f"{name}_year_stated"] = Evidence(False, quote)
+                value = nearest_year(str(value), read or date.today())
         accepted[name] = Evidence(value, quote)
     return ParsedEvent(accepted), rejected
