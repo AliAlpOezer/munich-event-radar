@@ -1,7 +1,7 @@
 import contextlib
 import re
 import unicodedata
-from collections import defaultdict
+from collections import Counter, defaultdict
 from collections.abc import Iterable
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -76,13 +76,18 @@ def local_minute(value: object) -> str | None:
     return moment.strftime("%Y-%m-%dT%H:%M") if moment else text[:16]
 
 
-def aliases(url: str, platform_keys: Iterable[str], fields: dict[str, Evidence]) -> set[str]:
+def aliases(
+    url: str, platform_keys: Iterable[str], fields: dict[str, Evidence], listing: bool = False
+) -> set[str]:
     """The keys an event seen on page `url` is known by: its platform keys and event URL,
-    else the page, its title and its day."""
+    else the page, its title and its day. The URL of a `listing` names none of its events
+    (ADR 0020 D1)."""
     found = set(platform_keys)
     event_url = fields.get("event_url")
     if event_url and event_url.value:
-        found.add("url:" + canonical(str(event_url.value)))
+        own = canonical(str(event_url.value))
+        if not listing or own != canonical(url):
+            found.add("url:" + own)
     if not found:
         title = fields.get("title")
         start = fields.get("starts_at")
@@ -91,6 +96,13 @@ def aliases(url: str, platform_keys: Iterable[str], fields: dict[str, Evidence])
             f"{local_date(start and start.value)}"
         )
     return found
+
+
+def title_and_day(fields: dict[str, dict | None]) -> tuple[str, str | None]:
+    """An event's title, folded, and its local day: what tells the events of one page
+    apart when its URL names none of them (ADR 0020 D3)."""
+    title, start = (fields.get(name) or {} for name in ("title", "starts_at"))
+    return _norm(title.get("value")), local_date(start.get("value"))
 
 
 def _latest_only(observations: list[Observation]) -> list[Observation]:
@@ -114,6 +126,21 @@ class _UnionFind:
 
     def union(self, a: str, b: str) -> None:
         self.parent[self.find(a)] = self.find(b)
+
+
+def _join_undated(alias_sets: Iterable[set[str]], uf: _UnionFind) -> None:
+    """An event read on a page without its day is the page's one event with its title and a
+    day, when there is exactly one; a series of them stays apart (ADR 0020 D1)."""
+    named = {a for keys in alias_sets for a in keys if a.startswith("obs:")}
+    dated = defaultdict(set)
+    for alias in named:
+        page_title, day = alias.rsplit("|", 1)
+        if day != "None":
+            dated[page_title].add(alias)
+    for alias in named:
+        page_title, day = alias.rsplit("|", 1)
+        if day == "None" and len(found := dated[page_title]) == 1:
+            uf.union(alias, *found)
 
 
 def _platforms(aliases: set[str]) -> dict[str, set[str]]:
@@ -228,14 +255,18 @@ def _refine_time(group: Resolved, chosen: dict[str, dict]) -> None:
 
 def resolve(observations: list[Observation]) -> list[Resolved]:
     current = _latest_only(observations)
+    # A page is a listing when a current read of it, by any method, finds several events.
+    reads = Counter((o.snapshot_hash, o.url, o.method) for o in current)
+    listings = {canonical(url) for (_, url, _), n in reads.items() if n > 1}
     uf = _UnionFind()
     alias_of = {}
     for obs in current:
-        keys = aliases(obs.url, obs.platform_keys, obs.fields)
+        keys = aliases(obs.url, obs.platform_keys, obs.fields, canonical(obs.url) in listings)
         alias_of[obs.id] = keys
         first, *rest = sorted(keys)
         for alias in rest:
             uf.union(alias, first)
+    _join_undated(alias_of.values(), uf)
     clusters: dict[str, Resolved] = {}
     for obs in current:
         root = uf.find(next(iter(alias_of[obs.id])))

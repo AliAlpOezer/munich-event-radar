@@ -4,6 +4,7 @@ logged-in user, with the JWT claims set and only the api schema on the search pa
 import json
 import uuid
 from contextlib import contextmanager
+from dataclasses import replace
 
 import pytest
 from psycopg import errors, sql
@@ -524,6 +525,109 @@ def test_an_event_that_leaves_the_board_is_deleted_with_what_hangs_on_it(store, 
     with store.tx() as db:
         for table in ("event_alias", "push_ledger", "user_state"):
             assert db.execute(sql.SQL("SELECT FROM {}").format(sql.Identifier(table))).rowcount == 0
+
+
+def _event(title, aliases, sources=(), verdict=None):
+    return JudgedEvent(
+        set(aliases), {"title": {"value": title}}, "url", verdict or _verdict(), list(sources)
+    )
+
+
+def _board(store):
+    return {e["fields"]["title"]["value"]: e["key"] for e in store.events.all()}
+
+
+FAIR = _event("Career Fair", {"url:fair", "pretix:fair"}, ["https://fair"])
+TALK = _event("Talk", {"url:talk"}, ["https://talk"])
+
+
+@pytest.mark.parametrize("order", [(FAIR, TALK), (TALK, FAIR)])
+def test_events_whose_pages_part_ways_both_stay_and_the_star_stays_with_one(store, users, order):
+    # Hosted on 2026-10-22, the Career Fair's pages and a past talk's named one stored event,
+    # and each judging wrote only the talk under its key (ADR 0020).
+    store.events.save([_event("Career Fair", FAIR.aliases | TALK.aliases, ["https://talk"])])
+    [glued] = store.events.all()
+    alice = users()
+    with api(store, alice) as db:
+        db.execute("SELECT set_star(%s, true)", (glued["key"],))
+    counts = store.events.save(list(order))
+    board = _board(store)
+    assert set(board) == {"Career Fair", "Talk"}
+    # The fair names more of its aliases, so it keeps the event, star and all.
+    assert board["Career Fair"] == glued["key"] and _starred(store, alice, glued["key"])
+    assert counts == {"new": 0, "updated": 1, "split": 1, "merged": 0, "deleted": 0}
+    with store.tx() as db:
+        rows = db.execute("SELECT alias, event_key FROM event_alias").fetchall()
+    assert {r["alias"]: r["event_key"] for r in rows} == {
+        "url:fair": board["Career Fair"],
+        "pretix:fair": board["Career Fair"],
+        "url:talk": board["Talk"],
+    }
+    store.events.save(list(reversed(order)))
+    assert _board(store) == board
+
+
+@pytest.mark.parametrize("order", ["fair first", "talk first"])
+@pytest.mark.parametrize("leaving", ["Career Fair", "Talk"])
+def test_an_event_that_leaves_the_board_takes_only_its_own_part_of_a_stored_one(
+    store, order, leaving
+):
+    store.events.save([_event("Career Fair", FAIR.aliases | TALK.aliases, ["https://fair"])])
+    [glued] = store.events.all()
+    off = Verdict(None, ("ai=none",), "off_topic")
+    gone, staying = (FAIR, TALK) if leaving == "Career Fair" else (TALK, FAIR)
+    fair, talk = (replace(e, verdict=off) if e is gone else e for e in (FAIR, TALK))
+    store.events.save([fair, talk] if order == "fair first" else [talk, fair])
+    title = staying.fields["title"]["value"]
+    board = _board(store)
+    assert list(board) == [title]
+    # The stored event goes with the fair, which names more of it, whether it stays or leaves.
+    assert (board[title] == glued["key"]) is (staying is FAIR)
+    with store.tx() as db:
+        rows = db.execute("SELECT alias, event_key FROM event_alias").fetchall()
+    assert {r["alias"]: r["event_key"] for r in rows} == dict.fromkeys(
+        staying.aliases, board[title]
+    )
+
+
+@pytest.mark.parametrize("dated", [True, False])
+def test_an_event_known_by_a_page_that_becomes_a_listing_goes_on_by_its_title_and_day(
+    store, users, dated
+):
+    # Hosted on 2026-10-22, "ITCS München" was known only by its page's URL, until another
+    # read found several events there and the URL named none of them (ADR 0020 D3).
+    page = "https://www.example.org/"
+
+    def listed(title, day, alias):
+        fields = {"title": {"value": title}, "starts_at": {"value": day}}
+        return JudgedEvent({alias}, fields, "url", _verdict(), [page])
+
+    store.events.save([listed("ITCS München", "2026-10-30", f"url:{canonical(page)}")])
+    [stored] = store.events.all()
+    alice = users()
+    with api(store, alice) as db:
+        db.execute("SELECT set_star(%s, true)", (stored["key"],))
+    events = [
+        listed("ITCS Hamburg", "2026-10-30", "obs:hamburg"),
+        listed("ITCS München", "2027-10-29", "obs:next-year"),
+        listed("ITCS München", None, "obs:undated"),
+    ]
+    if dated:
+        events.append(listed("ITCS München", "2026-10-30", "obs:dated"))
+    counts = store.events.save(events)
+    with store.tx() as db:
+        rows = db.execute("SELECT alias, event_key FROM event_alias").fetchall()
+    owner = {r["alias"]: r["event_key"] for r in rows}
+    # The same title on the same day goes on, else on no day; never on another day.
+    goes_on = "obs:dated" if dated else "obs:undated"
+    assert {a for a, k in owner.items() if k == stored["key"]} == {
+        f"url:{canonical(page)}",
+        goes_on,
+    }
+    assert _starred(store, alice, stored["key"]) and len(set(owner.values())) == len(events)
+    assert counts == {"new": len(events) - 1, "updated": 1, "split": 0, "merged": 0, "deleted": 0}
+    store.events.save(events)
+    assert store.events.known({goes_on})["key"] == stored["key"]
 
 
 def test_the_api_is_rebuilt_only_when_it_changes(store):
