@@ -135,4 +135,24 @@
   domain: cdtm.com
   kind: student
   standing: anchor
-  sources: [{url: "https://luma.com/user/usr-155pp5bEZxqeQBp", kind: listing, browser: true}]
+  # The admission page shows its window only once rendered (ADR 0022).
+  sources:
+    - {url: "https://luma.com/user/usr-155pp5bEZxqeQBp", kind: listing, browser: true}
+    - {url: https://cdtm.com/program/study/apply, kind: event_page, browser: true}
+# Programme application pages (ADR 0022), each stating its window in its text, checked
+# 2026-11-09. Manage and More and Digital Product School are UnternehmerTUM programmes.
+- name: Manage and More
+  domain: manageandmore.de
+  standing: community
+  kind: startup
+  sources: [{url: https://www.manageandmore.de/application, kind: event_page}]
+- name: Digital Product School
+  domain: digitalproductschool.io
+  standing: community
+  kind: startup
+  sources: [{url: https://www.digitalproductschool.io/apply, kind: event_page}]
+- name: "TUM: Junge Akademie"
+  domain: ja.tum.de
+  standing: community
+  kind: academic
+  sources: [{url: https://www.ja.tum.de/ja/apply/, kind: event_page}]

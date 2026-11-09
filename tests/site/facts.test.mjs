@@ -35,6 +35,15 @@ test("an event is past after its last day, or when the judge says so", () => {
   assert.ok(!isUpcoming(event({ starts_at: shift(5) }, { drop_reason: "online_only" })));
 });
 
+test("a closed window ends an event without a day, and a programme, as in the judge", () => {
+  assert.ok(isPast(event({ kind: "programme", reg_closes_at: `${shift(-1)}T23:59:00` })));
+  assert.ok(isPast(event({ reg_closes_at: shift(-1) })));
+  assert.ok(!isPast(event({ reg_closes_at: today() })));
+  assert.ok(!isPast(event({ starts_at: shift(10), reg_closes_at: shift(-1) })));
+  assert.ok(isPast(event({ kind: "programme", starts_at: shift(100), reg_closes_at: shift(-1) })));
+  assert.ok(!isPast(event({ kind: "programme", starts_at: shift(100), reg_closes_at: shift(3) })));
+});
+
 test("an online event that has ended is past, not dropped", () => {
   const ended = event({ starts_at: `${shift(-11)}T18:00:00+02:00` }, { drop_reason: "online_only" });
   assert.ok(isPast(ended));

@@ -29,7 +29,13 @@ export const DROP_LABEL = {
 export const val = (ev, name) => ev.fields?.[name]?.value ?? null;
 
 export const startOf = (ev) => munich(val(ev, "starts_at"));
-const lastDayOf = (ev) => (munich(val(ev, "ends_at")) || startOf(ev))?.day ?? null;
+/* As the judge's last day (ADR 0022 D1): the end, else the start, else the registration's
+   close; a programme's close ends it, however far ahead its class starts. */
+function lastDayOf(ev) {
+  const closes = munich(val(ev, "reg_closes_at"));
+  if (closes && val(ev, "kind") === "programme") return closes.day;
+  return (munich(val(ev, "ends_at")) || startOf(ev) || closes)?.day ?? null;
+}
 export function isPast(ev) {
   if (ev.drop_reason === "past") return true;
   const last = lastDayOf(ev);
