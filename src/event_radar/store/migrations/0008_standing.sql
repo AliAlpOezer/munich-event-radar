@@ -11,4 +11,4 @@ WHERE discovered_via = 'seed'
     AND domain NOT IN ('tum.de', 'badw.de', 'lmu.de/ai-hub', 'munich-startup.de', 'baiosphere.org');
 
 UPDATE organiser SET standing = 'anchor'
-WHERE domain IN ('cdtm.com', 'tum-ai.com', 'startmunich.de', 'unternehmertum.de', 'mcml.ai');
+WHERE domain IN ('cdtm.com', 'tum-ai.com', 'startmunich.de', 'mcml.ai');

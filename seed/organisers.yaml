@@ -78,7 +78,7 @@
   sources: [{url: https://badw.de/en/events, kind: listing}]
 - name: UnternehmerTUM
   domain: unternehmertum.de
-  standing: anchor
+  standing: community
   kind: startup
   sources: [{url: https://www.unternehmertum.de/en/events, kind: listing}]
 - name: Munich Startup

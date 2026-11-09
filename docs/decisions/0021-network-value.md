@@ -48,8 +48,8 @@ All read-only; the comparison is in the records repository,
 
 | Standing | Meaning | Organisers (seed, 2026-11-08) |
 |---|---|---|
-| `anchor` | A community the board exists for (`radar/clubs.md` Tier 1 and the joint institutions). Every event in scope and at least B; a networking event of theirs is A whatever its topic | CDTM, TUM.ai, START Munich, UnternehmerTUM, MCML |
-| `community` | Runs its own events and was chosen by a person. Every event in scope | the other seed organisers that run their own events |
+| `anchor` | A community the board exists for (`radar/clubs.md` Tier 1 and the joint institutions). Every event in scope and at least B; a networking event of theirs is A whatever its topic | CDTM, TUM.ai, START Munich, MCML |
+| `community` | Runs its own events and was chosen by a person. Every event in scope | the other seed organisers that run their own events, UnternehmerTUM among them (D10) |
 | `calendar` | Lists many organisers' events, or nobody curated it yet. Its events need a topic | TUM central events, BAdW, AI-HUB@LMU, Munich Startup, baiosphere; every intake organiser until the seed names it |
 
 ## The judgment, `judgments-v4`
@@ -88,12 +88,13 @@ kind and title.
 | 1 | Rank by topic strength, networking and organiser standing, as ordered rules whose deciding rule is the last tier reason | A points score per axis: the thresholds trade one axis against another invisibly, and a reason list of points does not say why. Keeping AI relevance as the axis: the measured gap |
 | 2 | AI `some` and `tech` are weak topics: B at a curated organiser, C at a calendar. This is health check fix 1 in general form: a conference with AI as one theme at a general calendar is C | A rule for conferences only: the same error came as a programme (Awareness week) and a symposium. Tech as strong: TUM central's engineering talks would fill B |
 | 3 | Standing is one column, `organiser.standing`, default `calendar`, owned by the seed for every organiser the seed names by domain and name, also an intake's | Three booleans: anchor implies community. The intake profile deciding it: a model would decide trust (invariant 2). Default `community`: AHA Bayern's 40 off-topic events (concerts, children's labs) would be stored as C |
-| 4 | `startup_focus` (organiser kind `startup`, ADR 0011 D4) goes: UnternehmerTUM is an anchor, Munich Startup a calendar whose events the judgment calls startup | Keeping it beside standing: two flags that put events in scope, and Munich Startup's listing items are other organisers' events |
+| 4 | `startup_focus` (organiser kind `startup`, ADR 0011 D4) goes: UnternehmerTUM is a community, Munich Startup a calendar whose events the judgment calls startup | Keeping it beside standing: two flags that put events in scope, and Munich Startup's listing items are other organisers' events |
 | 5 | `ai_focus` stays: it says what an organiser's thin texts are about, not how much the radar trusts it | Folding it into standing: MCML is an anchor and AI-focused, Munich NLP a community and AI-focused |
 | 6 | `networking` and `event` are judgment answers, read from the page as a person would | Title words only: "Climate Coffee" and "Homecoming" name no format, and a news page names no format either. A new kind: one kind per event cannot be both a talk and networking |
 | 7 | A news page is a stored drop, `not_event`, labelled "Not an event" on the page | Unstored, like off topic: a false judgment would delete an event silently, against invariant 5 |
 | 8 | An anchor's networking event is A whatever its topic | B only: CDTM's Open Day and MCML's Stammtisch are the board's purpose |
 | 9 | Off-topic and audience drops stay unstored (ADR 0011 D3, ADR 0012); the harvest log lists each, title and organiser, so a drop is visible to the maintainer | Storing them behind a toggle: ADR 0011 D3's reason holds, every visitor would download 150 rows of concerts and lab tours |
+| 10 | UnternehmerTUM is `community` (Alp, 2026-11-09): its startup events rank by their topic, and an event of its with no topic is C | `anchor`, the plan of 2026-11-06: its film evening, Olympia talk and textile forum would sit in B beside CDTM's Open Day |
 
 ## Check
 
@@ -110,19 +111,25 @@ kind and title.
 
 Dry run, read-only, over the hosted observations and their `judgments-v3` answers with the
 stored events' stars (`network_dump.py` in the records repository, standing from this
-branch's seed): 30 of 389 groups move, none leaves or joins.
+branch's seed): 24 of 389 groups move, none leaves or joins.
 
 | | A | B | C | off topic | past |
 |---|---|---|---|---|---|
 | `event-splits` (bd77fc3) | 23 | 13 | 25 | 150 | 146 |
-| this branch | 22 | 29 | 10 | 145 | 151 |
+| this branch, UnternehmerTUM `anchor` (2026-11-08) | 22 | 29 | 10 | 145 | 151 |
+| this branch, UnternehmerTUM `community` (D10, re-run 2026-11-09) | 22 | 23 | 16 | 145 | 151 |
+
+The 2026-11-09 re-run with UnternehmerTUM as `anchor` gave the 2026-11-08 counts again, so
+the last row differs from the one above by D10 alone: six UnternehmerTUM events stay C, the
+moves below are the final ones.
 
 | Move | Events |
 |---|---|
 | A to C, AI as a side theme on a general calendar | Awareness week (mental health), Munich Vascular Conference, Patientensymposium: Herz aus dem Takt, W-JAX 2026, bidt Digital Transformation Research Conference |
 | C to A | CDTM Open Day (career, Open Day), Women Startup Pitch Night & Award Ceremony and Women Startup Award Pitch Night (UnternehmerTUM), Mobility Experts Stammtisch (UnternehmerTUM) |
 | C to B, a strong topic | CDTM International Stories, CDTM Climate Coffee, Opportunity Hunters Talks (12.11), Industrial Edge Workshops for Startups, TUM IDEAward, Women in STEM Round Table x G+D, TUM Alumni Homecoming, Welcome@TUM |
-| C to B, the anchor floor only | MCML Stammtisch, Road to START Summit (paid), Opportunity Hunters Talks (19.11, 26.11, not yet judged), and four UnternehmerTUM events with no topic: "How reel is it? The Substance", "Inspiration & Talk: Was Olympia für München in Gang setzen kann", CIRCULAR REPUBLIC Textile Forum, "Start and Spread Winter 2024" |
+| C to B, the anchor floor only | MCML Stammtisch, Road to START Summit (paid) |
+| C, unchanged by D10 | four UnternehmerTUM events with no topic ("How reel is it? The Substance", "Inspiration & Talk: Was Olympia für München in Gang setzen kann", CIRCULAR REPUBLIC Textile Forum, "Start and Spread Winter 2024") and Opportunity Hunters Talks of 19.11 and 26.11, not yet judged; as startup talks they reach B once judged, like the one of 12.11 |
 | off topic to past, now stored | 4 START Munich events, 1 CDTM |
 
 The news pages ("TUM opens Convergence Center", "Lars Klingbeil visits TUM") keep their
@@ -140,7 +147,3 @@ Bavaria, a large share of a harvest that used 47 of its 60 minutes on 2026-11-02
 `/p/<slug>`, which no listing rule follows; SCE's events page redirects to its Eventbrite
 organiser page, whose listing would follow Eventbrite's `/d/` city pages. They belong with
 the listing readers, measured against the harvest budget.
-
-Open for Alp: UnternehmerTUM as `anchor` (the plan of 2026-11-06) puts its four events
-with no topic at B; as `community` they would be C, and its startup events would keep B
-and A by their topic.
