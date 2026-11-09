@@ -17,7 +17,7 @@ _TOPICS = {
     "ai": "artificial intelligence, machine learning or data science",
     "startup": "startups, founding a company or investing",
     "career": "careers, jobs or hiring",
-    "developer": "coding, programming or software development",
+    "tech": "coding, programming or software development",
 }
 
 # Each question asks after one kind of registration detail. Beside it are the fields of the

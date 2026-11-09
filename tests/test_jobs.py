@@ -336,6 +336,8 @@ def _judged(i: int, about_ai: bool, ai: str | None = None) -> dict:
         **topics,
         "kind": kind,
         "audience": "adults",
+        "event": True,
+        "networking": False,
     }
 
 
@@ -567,13 +569,13 @@ def test_identical_events_on_two_pages_are_sorted_once(store, profile):
     assert answers.asked == [] and set(_states(store).values()) == {"skipped"}
 
 
-def test_a_startup_organisers_events_stay_and_off_topic_ones_are_not_stored(store, profile):
+def test_a_followed_organisers_events_stay_and_off_topic_ones_are_not_stored(store, profile):
     pages = {
         "/events/talk": lambda: _page("Talk on 5 November", "a"),
         "/events/museums": lambda: _event("Long Night of the Museums", "2030-10-17T18:00:00+02:00"),
     }
     harvester, answers = _site(store, profile, pages, unrelated=("Museums",))
-    org = store.organisers.add("UnternehmerTUM", "example.org", "test", kind="startup")
+    org = store.organisers.add("UnternehmerTUM", "example.org", "test", standing="community")
     with store.tx() as db:
         db.execute("UPDATE source SET organiser_id = %s WHERE url LIKE '%%/talk'", (org,))
     harvester.harvest_due()
@@ -783,7 +785,8 @@ def test_an_event_has_the_stars_and_judgment_of_the_stored_events_it_carries_on(
 
 
 def test_an_event_with_five_stars_rises_to_b_at_the_next_judging(store, profile, users):
-    pages = {"/events/pitch": lambda: _event("Startup pitch night", "2030-11-05T18:00:00+01:00")}
+    # A weak topic on a general calendar: C (ADR 0021).
+    pages = {"/events/pitch": lambda: _event("Cloud coding night", "2030-11-05T18:00:00+01:00")}
     harvester, _ = _site(store, profile, pages)
     harvester.harvest_due()
     harvester.judge_events()

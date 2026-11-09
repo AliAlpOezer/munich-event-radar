@@ -10,7 +10,7 @@ import yaml
 from .extract import Extractor, judgments
 from .fetch import Fetcher
 from .judge import Judge
-from .model import Kind, field_value
+from .model import Kind, Standing, field_value
 from .pipeline import ingest
 from .platforms import canonical, host
 from .profile import Profile
@@ -36,13 +36,14 @@ def _fixture_pages(fixtures: Path):
             yield url, entry.get("content_type"), (fixtures / entry["file"]).read_bytes()
 
 
-def _focus_domains(repo: Path) -> tuple[tuple[str, ...], tuple[str, ...]]:
-    """The domains of the AI-focused seed organisers, and of the startup ones."""
+def _seed_domains(repo: Path) -> tuple[tuple[str, ...], dict[Standing, tuple[str, ...]]]:
+    """The domains of the AI-focused seed organisers, and those of each standing the seed
+    gives (ADR 0021)."""
     rows = yaml.safe_load((repo / "seed" / "organisers.yaml").read_text(encoding="utf-8"))
-    return (
-        tuple(r["domain"] for r in rows if r.get("ai_focus")),
-        tuple(r["domain"] for r in rows if r.get("kind") == "startup"),
-    )
+    return tuple(r["domain"] for r in rows if r.get("ai_focus")), {
+        standing: tuple(r["domain"] for r in rows if r.get("standing") == standing)
+        for standing in Standing
+    }
 
 
 def _under(url: str, domains: tuple[str, ...]) -> bool:
@@ -67,20 +68,29 @@ def replay(repo: Path, fixtures: Path, dsn: str | None, extractor: Extractor | N
                 candidates = judgments.candidates(events, body, url, event_page=True)
                 store.observations.add(digest, url, source_class, method, events, candidates)
         groups = resolve(store.observations.all())
-    return _score(golden, groups, judge, now, _focus_domains(repo))
+    return _score(golden, groups, judge, now, *_seed_domains(repo))
 
 
-def _score(golden: dict, groups, judge: Judge, now: datetime, domains: tuple) -> dict:
+def _score(
+    golden: dict,
+    groups,
+    judge: Judge,
+    now: datetime,
+    focused: tuple[str, ...],
+    standings: dict[Standing, tuple[str, ...]],
+) -> dict:
     rows = []
     for event in golden["events"]:
         pages = {canonical(p) for p in event["pages"]}
         matches = [g for g in groups if pages & {canonical(o.url) for o in g.observations}]
-        # Fixture pages have no source rows. An event is judged as its organiser's: AI-focused
-        # or a startup's when one of its pages lies under such a seed organiser's domain.
-        ai_focus, startup_focus = (any(_under(p, d) for p in event["pages"]) for d in domains)
+        # Fixture pages have no source rows. An event is judged as its organiser's: AI-focused,
+        # or of a standing, when one of its pages lies under such a seed organiser's domain.
+        ai_focus = any(_under(p, focused) for p in event["pages"])
+        standing = Standing.highest(
+            s for s, domains in standings.items() if any(_under(p, domains) for p in event["pages"])
+        )
         verdicts = [
-            (g, judge.judge(g.fields, now, ai_focus=ai_focus, startup_focus=startup_focus))
-            for g in matches
+            (g, judge.judge(g.fields, now, standing=standing, ai_focus=ai_focus)) for g in matches
         ]
         surfaced = [(g, v) for g, v in verdicts if v.tier in {"A", "B"}]
         best = surfaced[0] if surfaced else (verdicts[0] if verdicts else (None, None))

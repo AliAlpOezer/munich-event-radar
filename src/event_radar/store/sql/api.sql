@@ -41,7 +41,7 @@ CROSS JOIN LATERAL (
 
 CREATE VIEW organisers WITH (security_invoker = true) AS
 SELECT
-    o.id, o.name, o.domain, o.kind, o.ai_focus, o.status, o.homepage,
+    o.id, o.name, o.domain, o.kind, o.ai_focus, o.standing, o.status, o.homepage,
     o.discovered_via, o.discovered_at,
     COALESCE((
         SELECT jsonb_agg(jsonb_build_object(

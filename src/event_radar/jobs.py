@@ -52,6 +52,7 @@ def seed(settings: config.Settings) -> int:
             "seed",
             kind=row.get("kind"),
             ai_focus=row.get("ai_focus", False),
+            standing=row.get("standing", "calendar"),
             discovery_url="seed/organisers.yaml",
         )
         for src in row["sources"]:
@@ -68,7 +69,8 @@ def seed(settings: config.Settings) -> int:
 
 
 def harvest(settings: config.Settings) -> dict:
-    """The scheduled run: fetch the due sources, extract, judge, prune page bodies."""
+    """The scheduled run: fetch the due sources, extract, judge, prune page bodies. Returns
+    the counts, and under `unstored` the events left off the board unstored, with why."""
     store = Store(settings.database_url)
     router = _router(settings, store)
     harvester = Harvester(
@@ -94,7 +96,7 @@ def harvest(settings: config.Settings) -> dict:
         raise
     store.runs.finish(run_id, RunOutcome.OK, dict(counts))
     _ping(settings, "", dict(counts))
-    return dict(counts)
+    return {**counts, "unstored": harvester.unstored}
 
 
 def search_web(settings: config.Settings, dry_run: bool = False) -> dict:

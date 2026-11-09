@@ -1,4 +1,4 @@
-from ..model import OrganiserStatus
+from ..model import OrganiserStatus, Standing
 from .database import Repository, now_iso
 
 
@@ -9,6 +9,7 @@ class Organisers(Repository):
     def add(self, name: str, domain: str, via: str, **cols) -> int:
         """The organiser's id, adding it if new; 0 when its domain was removed."""
         ai_focus = bool(cols.get("ai_focus", False))
+        standing = Standing(cols.get("standing", Standing.CALENDAR))
         with self.database.tx() as db:
             tomb = db.execute(
                 "SELECT 1 FROM organiser WHERE domain = %s AND status = 'removed'", (domain,)
@@ -17,8 +18,8 @@ class Organisers(Repository):
                 return 0
             db.execute(
                 "INSERT INTO organiser (name, domain, discovered_via, discovered_at,"
-                " homepage, kind, ai_focus, discovery_url)"
-                " VALUES (%s, %s, %s, %s, %s, %s, %s, %s) ON CONFLICT DO NOTHING",
+                " homepage, kind, ai_focus, standing, discovery_url)"
+                " VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s) ON CONFLICT DO NOTHING",
                 (
                     name,
                     domain,
@@ -27,15 +28,17 @@ class Organisers(Repository):
                     cols.get("homepage"),
                     cols.get("kind"),
                     ai_focus,
+                    standing,
                     cols.get("discovery_url"),
                 ),
             )
-            # The seed file owns ai_focus on seed rows, so a re-import applies its edits.
+            # The seed file owns ai_focus and standing of every organiser it names, also one
+            # an intake added (ADR 0021 D3), so a re-import applies its edits.
             if via == "seed":
                 db.execute(
-                    "UPDATE organiser SET ai_focus = %s WHERE domain = %s AND name = %s"
-                    " AND discovered_via = 'seed'",
-                    (ai_focus, domain, name),
+                    "UPDATE organiser SET ai_focus = %s, standing = %s"
+                    " WHERE domain = %s AND name = %s",
+                    (ai_focus, standing, domain, name),
                 )
             return db.execute(
                 "SELECT id FROM organiser WHERE domain = %s AND name = %s", (domain, name)

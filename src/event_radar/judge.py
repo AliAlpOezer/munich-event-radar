@@ -1,9 +1,12 @@
 import re
 from datetime import datetime
 
-from .model import AUDIENCE, OFF_TOPIC, Verdict, field_value
+from .model import AUDIENCE, NOT_EVENT, OFF_TOPIC, Standing, Verdict, field_value
 from .profile import Profile
 from .resolve import local_date
+
+STRONG, WEAK = "strong", "weak"
+TOPIC = {STRONG: "about AI, startups or careers", WEAK: "AI or tech as a side theme"}
 
 
 def _words(*parts: object) -> str:
@@ -86,26 +89,38 @@ class Judge:
         found = _words(text)
         return any(w in found for w in self.profile.ai_keywords + self.profile.scope_keywords)
 
-    def in_scope(
-        self,
-        fields: dict,
-        kind: str | None,
-        relevance: str,
-        *,
-        ai_focus: bool,
-        startup_focus: bool,
-        judgment: dict | None = None,
-    ) -> bool:
-        """About AI, or an AI-focused or startup organiser's, or of a kind shown whatever its
-        topic, or judged to be about a topic of the profile; without a judgment, a startup,
-        career or coding event by its words."""
-        if relevance in {"core", "some"} or ai_focus or startup_focus:
-            return True
-        if kind in self.profile.any_topic_kinds:
-            return True
+    def topics(self, fields: dict, judgment: dict | None = None) -> list[str]:
+        """The topics besides AI the event is about: as judged, else as its words name them."""
         if judgment:
-            return any(judgment[t] for t in self.profile.topics)
-        return any(w in self._text(fields) for w in self.profile.scope_keywords)
+            return [t for t in sorted(self.profile.topics) if judgment[t]]
+        text = self._text(fields)
+        return [
+            t
+            for t in sorted(self.profile.topics)
+            if any(w in text for w in self.profile.scope_groups.get(t, ()))
+        ]
+
+    def topic(self, relevance: str, topics: list[str], *, ai_focus: bool) -> str | None:
+        """How squarely the event is about the board's topics (ADR 0021): STRONG for AI as
+        its main topic, a strong topic of the profile, or AI unknown at an AI-focused
+        organiser; WEAK for AI as one theme among others or a weak topic; else None."""
+        if (
+            relevance == "core"
+            or (relevance == "unknown" and ai_focus)
+            or self.profile.strong_topics.intersection(topics)
+        ):
+            return STRONG
+        if relevance == "some" or self.profile.weak_topics.intersection(topics):
+            return WEAK
+        return None
+
+    def networking(self, fields: dict, judgment: dict | None = None) -> bool:
+        """Meeting people is the point of the event: as judged, else as its title names a
+        networking format. A judgment of an older question has no answer to it."""
+        if judgment and judgment.get("networking") is not None:
+            return bool(judgment["networking"])
+        title = _words(field_value(fields, "title"))
+        return any(w in title for w in self.profile.networking)
 
     def fact_drop(self, fields: dict, now: datetime) -> Verdict | None:
         """The drop for a fact of the event, whatever its topic: past, online only or
@@ -126,22 +141,28 @@ class Judge:
         fields: dict,
         now: datetime,
         *,
-        ai_focus: bool,
-        startup_focus: bool,
+        standing: Standing = Standing.CALENDAR,
+        ai_focus: bool = False,
         stars: int = 0,
         judgment: dict | None = None,
     ) -> Verdict:
-        """The tier or drop of an event by its fields and, when the LLM has judged what its
-        page says, by that judgment (ADR 0018)."""
+        """The tier or drop of an event by its fields, its organiser's standing and, when the
+        LLM has judged what its page says, by that judgment (ADR 0018, ADR 0021)."""
         verdict = self._by_rules(
-            fields, now, ai_focus=ai_focus, startup_focus=startup_focus, judgment=judgment
+            fields, now, standing=standing, ai_focus=ai_focus, judgment=judgment
         )
         if verdict.tier is None:
             return verdict
-        # Stars lift a tier (ADR 0015). Tiers are letters, A the highest.
-        for count, tier in self.profile.star_tiers:
-            if stars >= count and tier < verdict.tier:
-                return Verdict(tier, verdict.reasons + (f"starred by {count} or more",))
+        # An anchor's event is at least B (ADR 0021), stars lift a tier (ADR 0015). Tiers are
+        # letters, A the highest.
+        floors = [(standing is Standing.ANCHOR, "B", "an anchor community's event")]
+        floors += [
+            (stars >= count, tier, f"starred by {count} or more")
+            for count, tier in self.profile.star_tiers
+        ]
+        for applies, tier, reason in floors:
+            if applies and tier < verdict.tier:
+                verdict = Verdict(tier, verdict.reasons + (reason,))
         return verdict
 
     def _by_rules(
@@ -149,8 +170,8 @@ class Judge:
         fields: dict,
         now: datetime,
         *,
+        standing: Standing,
         ai_focus: bool,
-        startup_focus: bool,
         judgment: dict | None,
     ) -> Verdict:
         audience, phrase = self.audience(fields, judgment)
@@ -159,29 +180,37 @@ class Judge:
         price = field_value(fields, "price") or "unknown"
         kind = self.kind(fields, judgment)
         relevance = self.ai_relevance(fields, judgment)
+        topics = self.topics(fields, judgment)
+        topic = self.topic(relevance, topics, ai_focus=ai_focus)
+        networking = self.networking(fields, judgment)
         reasons = (f"price={price}", f"kind={kind}", f"ai={relevance}")
         if judgment:
-            topics = [t for t in sorted(self.profile.topics) if judgment[t]]
             reasons += (f"judged: {', '.join(topics) or 'no topic'}",)
-        if not self.in_scope(
-            fields,
-            kind,
-            relevance,
-            ai_focus=ai_focus,
-            startup_focus=startup_focus,
-            judgment=judgment,
-        ):
+        if networking:
+            reasons += ("networking",)
+        if standing is not Standing.CALENDAR:
+            reasons += (f"organiser={standing}",)
+        any_topic = kind in self.profile.any_topic_kinds
+        # Only a general calendar's events need a topic (ADR 0011, ADR 0021 invariant 3).
+        if not (topic or any_topic or ai_focus or standing is not Standing.CALENDAR):
             return Verdict(None, reasons, OFF_TOPIC)
+        if judgment and judgment.get("event") is False:
+            return Verdict(
+                None, reasons + ("judged a news page or report, not an event",), NOT_EVENT
+            )
         if drop := self.fact_drop(fields, now):
             return drop
         if price == "paid":
             return Verdict("C", reasons + ("paid, no free route",))
-        # A career fair or hackathon ranks by its kind, whatever its topic.
-        any_topic = kind in self.profile.any_topic_kinds
-        if relevance == "none" and not any_topic:
-            return Verdict("C", reasons + ("not AI-relevant",))
-        if relevance == "unknown" and not ai_focus and not any_topic:
-            return Verdict("C", reasons + ("AI relevance unknown, organiser not AI-focused",))
-        if kind in self.profile.a_kinds:
-            return Verdict("A", reasons)
-        return Verdict("B", reasons)
+        if any_topic:
+            return Verdict("A", reasons + ("a career fair or hackathon, whatever its topic",))
+        if topic == STRONG and (kind in self.profile.a_kinds or networking):
+            door = "built for meeting people" if networking else f"a {kind.replace('_', ' ')}"
+            return Verdict("A", reasons + (f"{TOPIC[STRONG]}, and {door}",))
+        if topic == STRONG:
+            return Verdict("B", reasons + (TOPIC[STRONG],))
+        if topic == WEAK:
+            followed = standing is not Standing.CALENDAR
+            where = "an organiser the radar follows" if followed else "a general calendar"
+            return Verdict("B" if followed else "C", reasons + (f"{TOPIC[WEAK]}, from {where}",))
+        return Verdict("C", reasons + ("about none of the board's topics",))

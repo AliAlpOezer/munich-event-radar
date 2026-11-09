@@ -78,5 +78,8 @@ test("the judge's reasons in words", () => {
   assert.equal(humanReason("price=free_student_route"), "Free route for students");
   assert.equal(humanReason("kind=panel_talk"), "Kind: panel talk");
   assert.equal(humanReason("unlisted=x"), "unlisted=x");
-  assert.equal(humanReason("plain"), "plain");
+  assert.equal(humanReason("plain"), "Plain");
+  assert.equal(humanReason("paid, no free route"), "Paid, no free route");
+  assert.equal(humanReason("networking"), "Built for meeting people");
+  assert.equal(humanReason("organiser=anchor"), "Run by a community the radar is built around");
 });

@@ -1,6 +1,7 @@
 # ADR 0018: The LLM judges what every event is about; code decides the board
 
-**Status:** DECIDED, building on branch `judgments`
+**Status:** DECIDED, building on branch `judgments`; the judgment gains `event` and
+`networking`, and "How the judge reads it" is replaced, by ADR 0021 (2026-11-08)
 **Date:** 2026-10-20
 **Inputs:** Alp, 2026-10-20, on the refused intake of
 https://www.eventbrite.com/e/tum-speakers-series-x-susanne-marell-roland-hehn-tickets-2003259324566:

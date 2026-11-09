@@ -21,7 +21,15 @@ from event_radar.extract.schema import SCHEMA
 from event_radar.extract.verify import names_date, verify
 from event_radar.html import image_url
 from event_radar.judge import Judge
-from event_radar.model import Evidence, Kind, Observation, ParsedEvent, SourceClass
+from event_radar.model import (
+    NOT_STORED,
+    Evidence,
+    Kind,
+    Observation,
+    ParsedEvent,
+    SourceClass,
+    Standing,
+)
 from event_radar.parse import parse
 from event_radar.platforms import canonical, platform_key
 from event_radar.profile import Profile
@@ -86,7 +94,7 @@ def test_a_luma_page_keeps_its_description_for_the_scope_check():
         "Builders and founders show what they shipped.\nDemos, then drinks.\nDoors open at 18:00"
     )
     bare = {**fields, "title": "The Night Shift", "organiser": "START Munich"}
-    assert verdict(ai_focus=False, **bare).tier == "C"
+    assert verdict(ai_focus=False, **bare).tier == "B"
     bare.pop("description")
     assert verdict(ai_focus=False, **bare).drop_reason == "off_topic"
 
@@ -119,7 +127,7 @@ def test_a_structured_event_keeps_its_description_as_plain_lines():
     result = parse("https://example.org/events/open-house", "text/html", body, Kind.EVENT_PAGE)
     fields = {k: v.value for k, v in result.events[0].fields.items()}
     assert fields["description"] == "Meet the founders of R&D teams.\nDoors at 18:00\nGarching"
-    assert verdict(ai_focus=False, **fields).tier == "C"
+    assert verdict(ai_focus=False, **fields).tier == "B"
     fields.pop("description")
     assert verdict(ai_focus=False, **fields).drop_reason == "off_topic"
     long = body.replace(b"Garching", b"Garching " * 400)
@@ -400,21 +408,29 @@ PROFILE = Profile.load(REPO / "profile.yaml")
 JUDGE = Judge(PROFILE)
 
 
-def verdict(ai_focus=True, startup_focus=False, stars=0, judgment=None, **fields):
+def verdict(ai_focus=True, standing=Standing.CALENDAR, stars=0, judgment=None, **fields):
     return JUDGE.judge(
         {k: {"value": v} for k, v in fields.items()},
         NOW,
+        standing=standing,
         ai_focus=ai_focus,
-        startup_focus=startup_focus,
         stars=stars,
         judgment=judgment,
     )
 
 
-def judged(ai="none", kind="talk", audience="adults", **topics):
-    """What the LLM judged an event to be about (ADR 0018)."""
+def judged(ai="none", kind="talk", audience="adults", event=True, networking=False, **topics):
+    """What the LLM judged an event to be about (ADR 0018), whether it is one and whether
+    meeting people is its point (ADR 0021)."""
     found = {"startup": False, "career": False, "tech": False, **topics}
-    return {"ai": ai, **found, "kind": kind, "audience": audience}
+    return {
+        "ai": ai,
+        **found,
+        "kind": kind,
+        "audience": audience,
+        "event": event,
+        "networking": networking,
+    }
 
 
 def test_judge_drops_only_by_logged_rule_and_never_on_price():
@@ -428,8 +444,9 @@ def test_judge_drops_only_by_logged_rule_and_never_on_price():
 
 def test_unknown_ai_relevance_surfaces_only_for_ai_focused_organisers():
     assert verdict(ai_focus=True, title="Monthly meetup #29").tier == "B"
+    # A startup word names a topic as strong as AI (ADR 0021).
     startup = verdict(ai_focus=False, title="Industrial Edge Workshops for Startups")
-    assert startup.tier == "C" and "organiser not AI-focused" in startup.reasons[-1]
+    assert startup.tier == "B" and startup.reasons[-1] == "about AI, startups or careers"
     assert verdict(ai_focus=False, title="Workshop on AI agents").tier == "B"
     assert verdict(ai_focus=False, title="HackaTUM for computer science").tier == "A"
     assert verdict(ai_focus=False, title="Firmenkontaktmesse IKOM").tier == "A"
@@ -446,7 +463,7 @@ def test_keywords_match_whole_words_whatever_the_punctuation():
     for text in ("Confidential computing aims to help", "Fresh air in Dubai", "Ski-Ausflug"):
         assert relevance(text) == "unknown", text
     assert relevance("Questions about enrollment and housing") == "unknown"
-    assert verdict(ai_focus=False, title="Meet the Start-up Founders").tier == "C"
+    assert verdict(ai_focus=False, title="Meet the Start-up Founders").tier == "B"
 
 
 def test_a_keyword_with_punctuation_is_refused(tmp_path):
@@ -492,7 +509,7 @@ def test_a_judgment_decides_what_the_words_cannot():
 
 def test_a_judgment_overrides_the_words_it_contradicts():
     # "pitch" is a startup word, but a sales pitch training is about none of the topics.
-    assert verdict(ai_focus=False, title="Sales pitch training").tier == "C"
+    assert verdict(ai_focus=False, title="Sales pitch training").tier == "B"
     training = verdict(
         ai_focus=False, judgment=judged(kind="workshop"), title="Sales pitch training"
     )
@@ -506,14 +523,8 @@ def test_a_judgment_overrides_the_words_it_contradicts():
         "kind=conference" in verdict(judgment=judged("core"), title="X", kind="conference").reasons
     )
     # Without `tech` in the profile's topics, the scope is ADR 0011's again.
-    narrow = Judge(replace(PROFILE, topics=frozenset({"startup", "career"})))
-    cloud = narrow.judge(
-        {"title": {"value": "Cloud Night"}},
-        NOW,
-        ai_focus=False,
-        startup_focus=False,
-        judgment=judged(tech=True),
-    )
+    narrow = Judge(replace(PROFILE, weak_topics=frozenset()))
+    cloud = narrow.judge({"title": {"value": "Cloud Night"}}, NOW, judgment=judged(tech=True))
     assert cloud.drop_reason == "off_topic"
 
 
@@ -555,23 +566,87 @@ def test_events_outside_ai_startups_and_careers_are_off_topic():
     assert paid.drop_reason == "off_topic"
     # An AI-focused organiser's event not about AI is C, stated or judged (ADR 0018 D9).
     party = verdict(ai_focus=True, title="Summer party", ai_relevance="none")
-    assert party.tier == "C" and "not AI-relevant" in party.reasons
+    assert party.tier == "C" and party.reasons[-1] == "about none of the board's topics"
     colloquium = verdict(ai_focus=True, judgment=judged(kind="talk"), title="Colloquium")
     assert colloquium.tier == "C"
-    assert verdict(ai_focus=False, title="Engineers for Germany: Career Lounge").tier == "C"
-    assert (
-        verdict(ai_focus=False, title="Opportunity Hunters Talks", startup_focus=True).tier == "C"
-    )
+    assert verdict(ai_focus=False, title="Engineers for Germany: Career Lounge").tier == "B"
+    talks = verdict(ai_focus=False, standing=Standing.COMMUNITY, title="Opportunity Hunters Talks")
+    assert talks.tier == "C"
     # A career fair or hackathon ranks by its kind, also when not about AI (ADR 0018).
     fair = verdict(
         ai_focus=False, title="Fit for TUMorrow Day", kind="career_fair", ai_relevance="none"
     )
-    assert fair.tier == "A" and fair.reasons[-1] == "ai=none"
+    assert fair.tier == "A" and fair.reasons[-2:] == (
+        "ai=none",
+        "a career fair or hackathon, whatever its topic",
+    )
     hackathon = verdict(ai_focus=False, judgment=judged(tech=True, kind="hackathon"), title="X")
     assert hackathon.tier == "A"
     paid = verdict(ai_focus=False, title="Career fair", ai_relevance="none", price="paid")
     assert paid.tier == "C"
-    assert verdict(ai_focus=False, title="Founders and investors night").tier == "C"
+    assert verdict(ai_focus=False, title="Founders and investors night").tier == "B"
+
+
+def test_events_rank_by_the_people_worth_meeting_there():
+    # ADR 0021, after the CDTM, START and calendar events of 2026-11-06 and 11-08.
+    open_day = judged(career=True, tech=True, networking=True)
+    cdtm = verdict(ai_focus=False, standing=Standing.ANCHOR, judgment=open_day, title="Open Day")
+    assert cdtm.tier == "A"
+    assert cdtm.reasons[-1] == "about AI, startups or careers, and built for meeting people"
+    assert {"networking", "organiser=anchor"} <= set(cdtm.reasons)
+    # An anchor's event is at least B, whatever its topic, and never off topic.
+    coffee = verdict(ai_focus=False, standing=Standing.ANCHOR, judgment=judged(), title="Coffee")
+    assert coffee.tier == "B" and coffee.reasons[-1] == "an anchor community's event"
+    paid = verdict(ai_focus=False, standing=Standing.ANCHOR, title="Summit", price="paid")
+    assert paid.tier == "B"
+    # A followed organiser's event is never off topic; a general calendar's needs a topic.
+    shift = {"ai_focus": False, "judgment": judged(), "title": "The Night Shift"}
+    assert verdict(standing=Standing.COMMUNITY, **shift).tier == "C"
+    assert verdict(**shift).drop_reason == "off_topic"
+    # AI as one theme: C on a general calendar, B at an organiser the radar follows.
+    side = {"ai_focus": False, "judgment": judged("some", "conference"), "title": "Vascular"}
+    assert verdict(**side).tier == "C"
+    assert verdict(standing=Standing.COMMUNITY, **side).tier == "B"
+    awareness = verdict(ai_focus=False, judgment=judged("some", "programme"), title="Awareness")
+    assert awareness.tier == "C"
+    # A strong topic is A with a kind that opens a door or with networking, else B.
+    night = {"ai_focus": False, "title": "NLP night"}
+    assert verdict(judgment=judged("core", "meetup"), **night).tier == "B"
+    assert verdict(judgment=judged("core", "meetup", networking=True), **night).tier == "A"
+    pitch = verdict(ai_focus=False, judgment=judged(kind="demo_day", startup=True), title="X")
+    assert (
+        pitch.tier == "A" and pitch.reasons[-1] == "about AI, startups or careers, and a demo day"
+    )
+    # An answer to an older question has no networking answer: the title names the format.
+    older = {k: v for k, v in judged(career=True).items() if k not in ("event", "networking")}
+    assert verdict(ai_focus=False, judgment=older, title="Alumni Stammtisch").tier == "A"
+    assert verdict(ai_focus=False, judgment=older, title="Alumni talk").tier == "B"
+    assert verdict(ai_focus=False, title="Founders Stammtisch").tier == "A"
+    assert verdict(ai_focus=False, title="Afterwork for founders").tier == "B"
+
+
+def test_a_page_judged_not_an_event_is_a_drop_that_is_stored():
+    news = verdict(judgment=judged("core", "demo_day", event=False), title="TUM opens a lab")
+    assert news.tier is None and news.drop_reason == "not_event"
+    assert news.drop_reason not in NOT_STORED
+    # Off topic comes first: a calendar's news page about none of the topics is not stored.
+    concert = verdict(ai_focus=False, judgment=judged(event=False), title="Concert review")
+    assert concert.drop_reason == "off_topic"
+    # An answer to an older question, without `event`, reads as an event.
+    older = {k: v for k, v in judged("core").items() if k != "event"}
+    assert verdict(judgment=older, title="AI talk").tier == "B"
+
+
+def test_the_seed_owns_the_standing_of_every_organiser_it_names(store):
+    cdtm = store.organisers.add("CDTM", "cdtm.com", "manual", kind="industry")
+    store.sources.add("https://luma.com/user/cdtm", "listing", "TICKET", 24, "manual", cdtm)
+    calendar = store.organisers.add("TUM", "tum.de", "seed")
+    store.sources.add("https://www.tum.de/events", "listing", "OWN", 24, "seed", calendar)
+    assert store.sources.standings() == {}
+    assert store.organisers.add("CDTM", "cdtm.com", "seed", standing="anchor") == cdtm
+    assert store.sources.standings() == {"https://luma.com/user/cdtm": Standing.ANCHOR}
+    assert Standing.highest([Standing.COMMUNITY, Standing.ANCHOR]) is Standing.ANCHOR
+    assert Standing.highest([]) is Standing.CALENDAR
 
 
 def test_coding_and_developer_events_are_in_scope():
@@ -622,7 +697,8 @@ def test_events_for_children_pupils_or_families_leave_the_board_whatever_their_t
     assert open_house.tier == "B"
     assert verdict(title="AI in Children's Medicine Symposium").tier == "A"
     assert verdict(ai_focus=False, title="Familienunternehmen und KI").tier == "B"
-    assert verdict(ai_focus=False, startup_focus=True, title="Family Office Summit").tier == "C"
+    office = verdict(ai_focus=False, standing=Standing.COMMUNITY, title="Family Office Summit")
+    assert office.tier == "C"
 
 
 def test_the_extraction_states_an_audience_from_its_own_values():
@@ -765,18 +841,19 @@ def test_an_answer_conforms_by_its_types_alone(answer, fits):
 
 def test_a_judgment_id_is_an_integer_not_a_boolean():
     judged = {"ai": "some", "startup": False, "career": True, "tech": True}
-    judged |= {"kind": "industry_talk", "audience": "adults"}
+    judged |= {"kind": "industry_talk", "audience": "adults", "event": True, "networking": False}
     assert conforms({"judgments": [{"id": 0, **judged}]}, judgments.SCHEMA)
     assert not conforms({"judgments": [{"id": True, **judged}]}, judgments.SCHEMA)
     assert judgments.answers({"judgments": [{"id": True, **judged}]}, 2) == {}
     assert judgments.answers({"judgments": [{"id": 1, **judged}]}, 2) == {1: judged}
-    for wrong in ({"ai": "maybe"}, {"tech": "yes"}, {"kind": "party"}, {"audience": None}):
+    wrongs = ({"ai": "maybe"}, {"tech": "yes"}, {"kind": "party"}, {"audience": None})
+    for wrong in (*wrongs, {"event": "yes"}, {"networking": None}):
         assert judgments.answers({"judgments": [{"id": 0, **judged, **wrong}]}, 1) == {}
 
 
 def test_a_judgment_that_cannot_tell_is_no_judgment():
     judged = {"ai": "unknown", "startup": True, "career": False, "tech": False}
-    judged |= {"kind": "meetup", "audience": "adults"}
+    judged |= {"kind": "meetup", "audience": "adults", "event": True, "networking": True}
     assert judgments.answers({"judgments": [{"id": 0, **judged}]}, 1) == {0: judged}
     assert judgments.telling(judged) is None and judgments.telling(None) is None
     assert judgments.telling(judged | {"ai": "none"})["ai"] == "none"

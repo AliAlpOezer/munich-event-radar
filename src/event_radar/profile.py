@@ -1,5 +1,6 @@
-"""The relevance profile, `profile.yaml` (ADR 0002 D6): what counts as Munich, AI and each
-kind of event, how intake recognises event and about pages, and what the web search asks."""
+"""The relevance profile, `profile.yaml` (ADR 0002 D6): what counts as Munich, AI, each topic
+and each kind of event, how intake recognises event and about pages, and what the web search
+asks."""
 
 import re
 from dataclasses import dataclass
@@ -56,8 +57,10 @@ class Profile:
     ai_keywords: tuple[str, ...]
     kind_keywords: dict[str, tuple[str, ...]]
     scope_keywords: tuple[str, ...]
-    scope_groups: dict[str, tuple[str, ...]]
-    topics: frozenset[str]
+    scope_groups: dict[str, tuple[str, ...]]  # topic -> its words
+    strong_topics: frozenset[str]
+    weak_topics: frozenset[str]
+    networking: tuple[str, ...]
     audiences: dict[str, tuple[str, ...]]
     online: Online
     link_signals: tuple[str, ...]
@@ -81,7 +84,9 @@ class Profile:
             kind_keywords={k: _keywords(v) for k, v in raw["keywords"]["kinds"].items()},
             scope_keywords=_keywords([w for words in raw["scope"].values() for w in words]),
             scope_groups={k: _keywords(v) for k, v in raw["scope"].items()},
-            topics=frozenset(raw["topics"]),
+            strong_topics=frozenset(raw["topics"]["strong"]),
+            weak_topics=frozenset(raw["topics"]["weak"]),
+            networking=_keywords(raw["networking"]),
             audiences={k: tuple(v) for k, v in raw["audience"].items()},
             online=Online(**{k: tuple(v) for k, v in raw["online"].items()}),
             link_signals=tuple(raw["intake"]["link_signals"]),
@@ -97,6 +102,11 @@ class Profile:
                 window=int(raw["decisions"]["registration"]["window"]),
             ),
         )
+
+    @property
+    def topics(self) -> frozenset[str]:
+        """The topics besides AI that keep an event (ADR 0018, ADR 0021)."""
+        return self.strong_topics | self.weak_topics
 
     def source_class(self, url: str) -> SourceClass:
         """AGG for an aggregator, even on a ticket platform (Eventbrite's search pages),
